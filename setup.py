@@ -16,7 +16,10 @@ setup(
         'bibtexparser',
     ],
     entry_points={
-        'console_scripts': ['fixbib=fixtex.fix_bib:main'],
-        'console_scripts': ['fixtex=fixtex.fix_tex:main'],
+        'console_scripts': [
+            # Register specific python functions as command line scripts
+            'fixbib=fixtex.fix_bib:main',
+            'fixtex=fixtex.fix_tex:main'
+        ],
     }
 )
