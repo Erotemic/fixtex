@@ -195,9 +195,9 @@ def main(bib_fpath=None):
         clean_text = clean_text.replace(bibtex_tag_old, bibtex_tag_new)
 
     # The bibtext is now clean. Print it to stdout
-    import mass_tex_fixes
+    from fixtex.mass_tex_fixes import fix_conference_title_names
     #print(clean_text)
-    clean_text = mass_tex_fixes.fix_conference_title_names(clean_text)
+    clean_text = fix_conference_title_names(clean_text)
 
     # Need to check
     #jegou_aggregating_2012

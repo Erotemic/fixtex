@@ -18,12 +18,12 @@ from __future__ import absolute_import, division, print_function, unicode_litera
 import re
 import utool as ut
 import six
-import constants_tex_fixes
 import bibtexparser
 from bibtexparser.bwriter import BibTexWriter
 import logging
 import logging.config
-from latex_parser import LatexDocPart
+from fixtex import constants_tex_fixes
+from fixtex.latex_parser import LatexDocPart
 print, rrr, profile = ut.inject2(__name__, '[masstexfix]')
 
 
