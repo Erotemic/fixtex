@@ -1,0 +1,44 @@
+*.py[cod]
+
+# C extensions
+*.so
+# Packages
+*.egg
+*.egg-info
+dist
+build
+eggs
+parts
+bin
+var
+sdist
+develop-eggs
+.installed.cfg
+lib
+lib64
+__pycache__
+
+# Installer logs
+pip-log.txt
+
+# Print Logs
+logs
+
+# Unit test / coverage reports
+.coverage
+.tox
+nosetests.xml
+
+# profiler
+*.lprof
+*.prof
+
+# utool output
+_test_times.txt
+failed.txt
+
+*.orig
+_doc
+failed_doctests.txt
+timeings.txt
+test_times.txt
