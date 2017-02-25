@@ -127,206 +127,245 @@ def find_citations(text):
         citekey_list.extend(contents.replace(' ', '').replace('\n', '').split(','))
     return citekey_list
 
+class BibTexCleaner(object):
+    def __init__(self, key, entry):
+        self.key = key
+        self.entry = entry
 
-def fix_conference_title_names(clean_text, key_list=None):
+    def clip_abstract(self):
+        # Clip abstrat
+        if 'abstract' in self.entry:
+            parts = self.entry['abstract'].split(' ')[0:7]
+            self.entry['abstract'] = ' '.join(parts)
+
+    def shorten_keys(self):
+        # Remove Keys
+        detail_level = {
+            'thesis': 3,
+            'journal': 2,
+            'conference': 1,
+        }
+        # FOR = 'thesis'
+        FOR = 'conference'
+        level = detail_level[FOR]
+        remove_keys = []
+        if level <= 3:
+            remove_keys += [
+                'note', 'urldate', 'series', 'publisher', 'isbn', 'editor',
+                'shorttitle', 'copyright', 'language', 'month',
+            ]
+        if level <= 2:
+            remove_keys += ['number','pages','volume',]
+
+        self.entry = ut.delete_dict_keys(self.entry, remove_keys)
+
+    def _confkey(self):
+        valid_keys = {'journal', 'booktitle',}
+        confkeys = sorted(set(self.entry.keys()).intersection(valid_keys))
+        if len(confkeys) == 1:
+            confkey = confkeys[0]
+        else:
+            if len(confkeys) > 1:
+                raise AssertionError('more than one confkey=%r' % (confkeys,))
+            confkey = None
+        return confkey
+
+    def _confval(self):
+        """
+        Finds conference or journal
+        """
+        confkey = self._confkey()
+        if confkey is None:
+            confval = None
+        else:
+            confval = self.entry[confkey]
+            confval = confval.replace('{', '').replace('}', '')
+        return confval
+
+    def fix_paper_types(self):
+        """
+        Ensure journals and conferences have correct entrytypes.
+        """
+        # Record info about types of conferneces
+        # true_confval = entry[confkey].replace('{', '').replace('}', '')
+        confval = self.standard_confval()
+        type_key = 'ENTRYTYPE'
+
+        # article = journal
+        # inprocedings = converence paper
+
+        # FIX ENTRIES THAT SHOULD BE CONFERENCES
+        entry = self.entry
+        if confval in constants_tex_fixes.CONFERENCE_LIST:
+            if entry[type_key] == 'inproceedings':
+                pass
+            elif entry[type_key] == 'article':
+                entry['booktitle'] = entry['journal']
+                del entry['journal']
+            elif entry[type_key] == 'incollection':
+                pass
+            else:
+                raise AssertionError('UNKNOWN TYPE: %r' % (entry[type_key],))
+            if 'booktitle' not in entry:
+                print('DOES NOT HAVE CORRECT CONFERENCE KEY')
+                print(ut.dict_str(entry))
+            assert 'journal' not in entry, 'should not have journal'
+            entry[type_key] = 'inproceedings'
+
+        # FIX ENTRIES THAT SHOULD BE JOURNALS
+        if confval in constants_tex_fixes.JOURNAL_LIST:
+            if entry[type_key] == 'article':
+                pass
+            elif entry[type_key] == 'inproceedings':
+                pass
+                #print(ut.dict_str(entry))
+            elif entry[type_key] == 'incollection':
+                pass
+            else:
+                raise AssertionError('UNKNOWN TYPE: %r' % (entry['type'],))
+            if 'journal' not in entry:
+                print('DOES NOT HAVE CORRECT CONFERENCE KEY')
+                print(ut.dict_str(entry))
+            assert 'booktitle' not in entry, 'should not have booktitle'
+
+    def standard_confval(self):
+        old_confval = self._confval()
+        if old_confval is None:
+            return None
+        new_confval = None
+        candidates = []
+        # Check if the conference/journal name matches any standard patterns
+        CONFERENCE_TITLE_MAPS = constants_tex_fixes.CONFERENCE_TITLE_MAPS
+        for conf_title, patterns in CONFERENCE_TITLE_MAPS.items():
+            match_exact = conf_title == old_confval
+            match_regex = any(
+                re.search(pattern, old_confval, flags=re.IGNORECASE)
+                for pattern in patterns
+            )
+            if (match_exact or match_regex):
+                new_confval = conf_title
+                candidates.append(new_confval)
+
+        if len(candidates) == 0:
+            new_confval = None
+        elif len(candidates) == 1:
+            new_confval = candidates[0]
+        else:
+            raise RuntimeError('double match')
+
+        if old_confval.startswith('arXiv'):
+            new_confval = 'arXiv'
+
+        return new_confval
+
+    def fix_confkey(self):
+        confkey = self._confkey()
+        if confkey is not None:
+            old_confval = self._confval()
+            new_confval = self.standard_confval()
+
+            if new_confval is None:
+                # Maybe the pattern is missing?
+                # unknown_confkeys.append(old_confval)
+                return old_confval
+            else:
+                # Overwrite the conference name
+                self.entry[confkey] = new_confval
+
+    def fix_authors(self):
+        # Fix Authors
+        if 'author' in self.entry:
+            authors = six.text_type(self.entry['author'])
+            for truename, alias_list in constants_tex_fixes.AUTHOR_NAME_MAPS.items():
+                pattern = six.text_type(
+                    ut.regex_or([ut.util_regex.whole_word(alias) for alias in alias_list]))
+                authors = re.sub(pattern, six.text_type(truename), authors, flags=re.UNICODE)
+            self.entry['author'] = authors
+
+
+def fix_conference_title_names(clean_text, key_list=None, verbose=None):
     """
     mass bibtex fixes
 
     CommandLine:
         ./fix_bib.py
+        fixbib --debug-author=Arandjelovi
+        fixbib --debug-author=Tolias
     """
+    if verbose is None:
+        verbose = 1
 
     # Find citations from the tex documents
     if key_list is None:
         key_list = find_used_citations(get_thesis_tex_fpaths())
-        key_list = list(set(key_list))
+        key_list = sorted(set(key_list))
         ignore = ['JP', '?']
         for item in ignore:
             try:
                 key_list.remove(item)
             except ValueError:
                 pass
+        if verbose:
+            print('Found %d citations used in the document' % (len(key_list),))
+    # else:
+    #     key_list = None
 
     unknown_confkeys = []
 
-    conference_keys = [
-        'journal',
-        'booktitle',
-    ]
-
-    ignore_confkey = [
-    ]
-
     bib_database = bibtexparser.loads(clean_text)
-
     bibtex_dict = bib_database.get_entry_dict()
 
-    isect = set(ignore_confkey).intersection(set(constants_tex_fixes.CONFERENCE_TITLE_MAPS.keys()))
-    assert len(isect) == 0, repr(isect)
-
-    #ut.embed()
     #conftitle_to_types_hist = ut.ddict(list)
-
-    type_key = 'ENTRYTYPE'
 
     debug_author = ut.get_argval('--debug-author', type_=str, default=None)
     # ./fix_bib.py --debug_author=Kappes
 
-    for key in bibtex_dict.keys():
+
+    if verbose:
+        print('Fixing %d/%d bibtex entries' % (len(key_list), len(bibtex_dict)))
+
+    unwanted_keys = set(bibtex_dict.keys()) - set(key_list)
+    ut.delete_dict_keys(bibtex_dict, unwanted_keys)
+
+    if verbose:
+        print('Fixing %d existing bibtex entries' % (len(bibtex_dict)))
+
+    debug = True
+    if debug_author is not None:
+        debug = False
+
+    for key in list(bibtex_dict.keys()):
         entry = bibtex_dict[key]
+        self = BibTexCleaner(key, entry)
 
         if debug_author is not None:
             debug = debug_author in entry.get('author', '')
-        else:
-            debug = False
 
         if debug:
-            print(' --- ENTRY ---')
+            ut.cprint(' --- ENTRY ---', 'yellow')
             print(ut.repr3(entry))
 
-        #if type_key not in entry:
-        #    #entry[type_key] = entry['ENTRYTYPE']
-        #    ut.embed()
+        self.clip_abstract()
+        self.shorten_keys()
+        self.fix_authors()
+        old_confval = self.fix_confkey()
+        if old_confval:
+            unknown_confkeys.append(old_confval)
+        # self.fix_paper_types()
 
-        # Clip abstrat
-        if 'abstract' in entry:
-            entry['abstract'] = ' '.join(entry['abstract'].split(' ')[0:7])
+        if debug:
+            print(ut.repr3(self.entry))
+            ut.cprint(' --- END ENTRY ---', 'yellow')
+        bibtex_dict[key] = self.entry
 
-        # Remove Keys
-        remove_keys = [
-            'note',
-            'urldate',
-            'series',
-            'publisher',
-            'isbn',
-            'editor',
-            'shorttitle',
-            'copyright',
-            'language',
-            'month',
-            # These will be put back in
-            #'number',
-            #'pages',
-            #'volume',
-        ]
-        entry = ut.delete_dict_keys(entry, remove_keys)
-
-        # Fix conference names
-        confkeys = list(set(entry.keys()).intersection(set(conference_keys)))
-        #entry = ut.delete_dict_keys(entry, ['abstract'])
-        # TODO: FIX THESE IF NEEDBE
-        #if len(confkeys) == 0:
-        #    print(ut.dict_str(entry))
-        #    print(entry.keys())
-        if len(confkeys) == 1:
-            confkey = confkeys[0]
-            old_confval = entry[confkey]
-            # Remove curly braces
-            old_confval = old_confval.replace('{', '').replace('}', '')
-            if old_confval in ignore_confkey:
-                print(ut.dict_str(entry))
-                continue
-
-            new_confval_candiates = []
-            if old_confval.startswith('arXiv'):
-                continue
-
-            for conf_title, patterns in constants_tex_fixes.CONFERENCE_TITLE_MAPS.items():
-                if (conf_title == old_confval or
-                      any([re.search(pattern, old_confval, flags=re.IGNORECASE)
-                           for pattern in patterns])):
-                    if debug:
-                        print('old_confval = %r' % (old_confval,))
-                        print('conf_title = %r' % (conf_title,))
-                    new_confval = conf_title
-                    new_confval_candiates.append(new_confval)
-
-            if len(new_confval_candiates) == 0:
-                new_confval = None
-            elif len(new_confval_candiates) == 1:
-                new_confval = new_confval_candiates[0]
-            else:
-                assert False, 'double match'
-
-            if new_confval is None:
-                if key in key_list:
-                    unknown_confkeys.append(old_confval)
-                #print(old_confval)
-            else:
-                # Overwrite old confval
-                entry[confkey] = new_confval
-
-            # Record info about types of conferneces
-            true_confval = entry[confkey].replace('{', '').replace('}', '')
-
-            # FIX ENTRIES THAT SHOULD BE CONFERENCES
-            if true_confval in constants_tex_fixes.CONFERENCE_LIST:
-                if entry[type_key] == 'inproceedings':
-                    pass
-                    #print(confkey)
-                    #print(ut.dict_str(entry))
-                elif entry[type_key] == 'article':
-                    entry['booktitle'] = entry['journal']
-                    del entry['journal']
-                    #print(ut.dict_str(entry))
-                elif entry[type_key] == 'incollection':
-                    pass
-                else:
-                    raise AssertionError('UNKNOWN TYPE: %r' % (entry[type_key],))
-
-                if 'booktitle' not in entry:
-                    print('DOES NOT HAVE CORRECT CONFERENCE KEY')
-                    print(ut.dict_str(entry))
-
-                assert 'journal' not in entry, 'should not have journal'
-
-                #print(entry['type'])
-                entry[type_key] = 'inproceedings'
-
-            # FIX ENTRIES THAT SHOULD BE JOURNALS
-            if true_confval in constants_tex_fixes.JOURNAL_LIST:
-
-                if entry[type_key] == 'article':
-                    pass
-                elif entry[type_key] == 'inproceedings':
-                    pass
-                    #print(ut.dict_str(entry))
-                elif entry[type_key] == 'incollection':
-                    pass
-                else:
-                    raise AssertionError('UNKNOWN TYPE: %r' % (entry['type'],))
-
-                if 'journal' not in entry:
-                    print('DOES NOT HAVE CORRECT CONFERENCE KEY')
-                    print(ut.dict_str(entry))
-
-                assert 'booktitle' not in entry, 'should not have booktitle'
-                #print(entry['type'])
-                #entry['type'] = 'article'
-
-            #conftitle_to_types_hist[true_confval].append(entry['type'])
-
-        elif len(confkeys) > 1:
-            raise AssertionError('more than one confkey=%r' % (confkeys,))
-
-        # Fix Authors
-        if 'author' in entry:
-            authors = six.text_type(entry['author'])
-            for truename, alias_list in constants_tex_fixes.AUTHOR_NAME_MAPS.items():
-                pattern = six.text_type(
-                    ut.regex_or([ut.util_regex.whole_word(alias) for alias in alias_list]))
-                authors = re.sub(pattern, six.text_type(truename), authors, flags=re.UNICODE)
-            entry['author'] = authors
-
-    """
-    article = journal
-    inprocedings = converence paper
-
-    """
+    # Overwrite BibDatabase structure
+    bib_database._entries_dict = bibtex_dict
+    bib_database.entries = list(bibtex_dict.values())
 
     #conftitle_to_types_set_hist = {key: set(val) for key, val in conftitle_to_types_hist.items()}
     #print(ut.dict_str(conftitle_to_types_set_hist))
 
+    print('Unknown conference keys:')
     print(ut.list_str(sorted(unknown_confkeys)))
     print('len(unknown_confkeys) = %r' % (len(unknown_confkeys),))
 
@@ -443,13 +482,18 @@ def find_used_citations(tex_fpath_list):
 
 
 def get_thesis_tex_fpaths():
+    """
+    Grabs tex files that are relevant to the document.
+    (Ideally, but this is super hacked for me right now)
+    """
     dpath = '.'
     #tex_fpath_list = ut.ls(dpath, 'chapter*.tex') + ut.ls(dpath, 'appendix.tex')
     patterns = [
         'chapter*.tex',
         'sec-*.tex',
         'figdef*.tex',
-        'def.tex'
+        'def.tex',
+        'main.tex',
     ]
     exclude_dirs = ['guts']
     tex_fpath_list = sorted(
@@ -745,8 +789,6 @@ if __name__ == '__main__':
                 summary = ut.highlight_regex(summary, r'^[a-z.]+ *\(...\)', reflags=re.MULTILINE, color='darkyellow')
                 print(summary)
                 print('---/outline---')
-                #import utool
-                #utool.embed()
             else:
                 print('---summary---')
                 print(ut.highlight_text(root.summary_str(outline=False), 'latex'))

@@ -71,6 +71,8 @@ AUTHOR_NAME_MAPS = {
     #Jiří
 }
 
+
+# Lists confkeys known to be conferences
 CONFERENCE_LIST = [
     'ECCV',
     'CVPR',
@@ -82,23 +84,26 @@ CONFERENCE_LIST = [
     'BMVC',
 ]
 
+
+# Lists confkeys known to be journals
 JOURNAL_LIST = [
     'IJCV'
     'TPAMI',
     'CVIU',
+    'Nature Methods',
 ]
 
 CONFERENCE_TITLE_MAPS = {
-    'EMMCVPR': [
-        regex_word('EMMCVPR'),
-        'Energy Minimization Methods in Computer Vision and Pattern Recognition'
+    'Nature Methods': [
+        'Nature Methods',
     ],
 
     'CVPR': [
         regex_word('CVPR'),
         '^Computer Vision and Pattern Recognition',
         r'Computer Vision, \d* IEEE \d*th International Conference on',
-        'Computer Vision, 2003. Proceedings. Ninth IEEE International Conference on'
+        'Computer Vision, 2003. Proceedings. Ninth IEEE International Conference on',
+        'Proceedings of the IEEE Conference on Computer Vision and Pattern Recognition',
     ],
 
     'IJCV': [
@@ -120,6 +125,7 @@ CONFERENCE_TITLE_MAPS = {
     'ECCV': [
         regex_word('ECCV'),
         'Computer VisionECCV',
+        'European Conference on Computer Vision',
     ],
 
     'NIPS': [
@@ -140,6 +146,11 @@ CONFERENCE_TITLE_MAPS = {
 
     'WACV': [
         regex_word('WACV'),
+    ],
+
+    'WACVW': [
+        regex_word('WACVW'),
+        'Winter Applications of Computer Vision Workshops',
     ],
 
     'CVIU': [],
@@ -273,4 +284,9 @@ CONFERENCE_TITLE_MAPS = {
     'Biometrika': [],
 
     'ICDT': ['Database Theory — ICDT’99'],
+
+    'EMMCVPR': [
+        regex_word('EMMCVPR'),
+        'Energy Minimization Methods in Computer Vision and Pattern Recognition'
+    ],
 }
