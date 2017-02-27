@@ -312,14 +312,20 @@ def fix_conference_title_names(clean_text, key_list=None, verbose=None):
 
     unknown_confkeys = []
 
-    bib_database = bibtexparser.loads(clean_text)
+    # bib_database = bibtexparser.loads(clean_text)
+    print('BIBTEXPARSER LOAD')
+    from bibtexparser import bparser
+    parser = bparser.BibTexParser(ignore_nonstandard_types=False)
+    bib_database = parser.parse(clean_text, partial=True)
+    # bib_database = bibtexparser.loads(bibtex_str, ignore_nonstandard_types=True)
+    print('BIBTEXPARSER GET_ENTRY_DICT')
+
     bibtex_dict = bib_database.get_entry_dict()
 
     #conftitle_to_types_hist = ut.ddict(list)
 
     debug_author = ut.get_argval('--debug-author', type_=str, default=None)
     # ./fix_bib.py --debug_author=Kappes
-
 
     if verbose:
         print('Fixing %d/%d bibtex entries' % (len(key_list), len(bibtex_dict)))
@@ -334,7 +340,8 @@ def fix_conference_title_names(clean_text, key_list=None, verbose=None):
     if debug_author is not None:
         debug = False
 
-    for key in list(bibtex_dict.keys()):
+    # for key in list(bibtex_dict.keys()):
+    for key in key_list:
         entry = bibtex_dict[key]
         self = BibTexCleaner(key, entry)
 
