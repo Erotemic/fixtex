@@ -216,14 +216,22 @@ def fix_section_common_errors(tex_fpath, dryrun=True):
         ut.print_difftext(ut.get_textdiff(text, new_text, 0))
 
 
-def find_used_citations(tex_fpath_list):
+def find_used_citations(tex_fpath_list, return_inverse=False):
     citekey_list = []
+    inverse = ut.ddict(list)
     for tex_fpath in tex_fpath_list:
         text = ut.read_from(tex_fpath)
         #print('\n\n+-----')
         local_cites = find_citations(text)
         citekey_list.extend(local_cites)
-    return citekey_list
+        for key in local_cites:
+            inverse[key].append(tex_fpath)
+
+    citekey_list = sorted(set(citekey_list))
+    if return_inverse:
+        return citekey_list, inverse
+    else:
+        return citekey_list
 
 
 def get_thesis_tex_fpaths():

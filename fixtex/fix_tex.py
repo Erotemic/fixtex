@@ -18,12 +18,12 @@ from __future__ import absolute_import, division, print_function, unicode_litera
 import re
 import utool as ut
 import six
-import constants_tex_fixes
+from fixtex import constants_tex_fixes
 import bibtexparser
 from bibtexparser.bwriter import BibTexWriter
 import logging
 import logging.config
-from latex_parser import LatexDocPart
+from fixtex.latex_parser import LatexDocPart
 print, rrr, profile = ut.inject2(__name__, '[texfix]')
 
 
@@ -616,7 +616,7 @@ def findcite():
 
     print('ALL')
     ignore = ['JP', '?']
-    citekey_list = ut.setdiff_ordered(sorted(ut.unique_keep_order2(citekey_list)), ignore)
+    citekey_list = ut.setdiff_ordered(sorted(ut.unique(citekey_list)), ignore)
     #print(ut.indentjoin(citekey_list))
     print('len(citekey_list) = %r' % (len(citekey_list),))
 

@@ -326,6 +326,13 @@ def main(bib_fpath=None):
     # DEBUG = ut.get_argflag('--debug')
     # Read in text and ensure ascii format
     dirty_text = ut.read_from(bib_fpath)
+
+    from os.path import exists, relpath
+
+    if exists('custom_extra.bib'):
+        dirty_text += '\n'
+        dirty_text += ut.read_from('custom_extra.bib')
+
     #udata = dirty_text.decode("utf-8")
     #dirty_text = udata.encode("ascii", "ignore")
     #dirty_text = udata
@@ -336,47 +343,27 @@ def main(bib_fpath=None):
     bib_database = parser.parse(dirty_text, partial=False)
     print('Finished parsing')
 
-    # # I removes word brakets
-    # brak_pat1 = r'\(\{' + '(?P<inside>.*)' + '\)\}'
-    # clean_text = re.sub(brak_pat1, r'\1', dirty_text)
-
-    # if DEBUG:
-    #     find_item_types(clean_text)
-
-    # item_type_list = [
-    #     'inproceedings',
-    #     'article',
-    #     'incollection',
-    #     'misc',
-    #     'book',
-    #     'techreport',
-    #     'phdthesis',
-    #     'patent',
-    #     'unpublished',
-    #     'online',
-    # ]
-
-    # # Fields to remove
-    # fields_remove_list = [
-    #     #'abstract',
-    #     'file',
-    #     'url',
-    #     'address',
-    #     'keywords',
-    #     'doi',
-    #     'issn',
-    #     'annote',
-    # ]
-
     bibtex_dict = bib_database.get_entry_dict()
-    for key in ut.ProgIter(list(bibtex_dict.keys()), label='replace bad chars'):
-        bad_tag_characters = [':', '-']
-        for char in bad_tag_characters:
-            if char in key:
-                entry = bibtex_dict[key]
-                key = key.replace(char, '')
-                entry['ID'] = key
-                bibtex_dict[key] = entry
+    old_keys = list(bibtex_dict.keys())
+    new_keys = []
+    import re
+    for key in ut.ProgIter(old_keys, 'fixing keys'):
+        new_key = key
+        new_key = new_key.replace(':', '')
+        new_key = new_key.replace('-', '_')
+        new_key = re.sub('__*', '_', new_key)
+        new_keys.append(new_key)
+    import ubelt as ub
+
+    # assert len(ut.find_duplicate_items(new_keys)) == 0, 'new keys created conflict'
+    assert len(ub.find_duplicates(new_keys)) == 0, 'new keys created conflict'
+
+    for key, new_key in zip(old_keys, new_keys):
+        if key != new_key:
+            entry = bibtex_dict[key]
+            entry['ID'] = new_key
+            bibtex_dict[new_key] = entry
+            del bibtex_dict[key]
 
     # The bibtext is now clean. Print it to stdout
     #print(clean_text)
@@ -388,9 +375,9 @@ def main(bib_fpath=None):
     # Find citations from the tex documents
     key_list = None
     if key_list is None:
-        key_list = find_used_citations(get_thesis_tex_fpaths())
-        key_list = sorted(set(key_list))
-        ignore = ['JP', '?']
+        fpaths = get_thesis_tex_fpaths()
+        key_list, inverse = find_used_citations(fpaths, return_inverse=True)
+        ignore = ['JP', '?', 'hendrick']
         for item in ignore:
             try:
                 key_list.remove(item)
@@ -402,19 +389,6 @@ def main(bib_fpath=None):
     #     key_list = None
 
     unknown_confkeys = []
-
-    # bib_database = bibtexparser.loads(clean_text)
-    # print('BIBTEXPARSER LOAD')
-    # from bibtexparser import bparser
-    # parser = bparser.BibTexParser(ignore_nonstandard_types=False)
-    # bib_database = parser.parse(clean_text, partial=False)
-    # bib_database = bibtexparser.loads(bibtex_str, ignore_nonstandard_types=True)
-    # print('BIBTEXPARSER GET_ENTRY_DICT')
-
-    # bibtex_dict = bib_database.get_entry_dict()
-
-    #conftitle_to_types_hist = ut.ddict(list)
-
     debug_author = ut.get_argval('--debug-author', type_=str, default=None)
     # ./fix_bib.py --debug_author=Kappes
 
@@ -426,20 +400,54 @@ def main(bib_fpath=None):
     if debug_author is not None:
         debug = False
 
-    missing_keys = set(key_list) - set(bibtex_dict.keys())
+    known_keys = list(bibtex_dict.keys())
+    missing_keys = set(key_list) - set(known_keys)
     if missing_keys:
-        print('The library is missing keys found in tex files %r' % (
-            missing_keys,))
+        print('The library is missing keys found in tex files %s' % (
+            ut.repr4(missing_keys),))
+
+    # Search for possible typos:
+    candidate_typos = {}
+    sedlines = []
+    for key in missing_keys:
+        candidates = ut.closet_words(key, known_keys, num=3, subset=True)
+        if len(candidates) > 1:
+            top = candidates[0]
+            if ut.edit_distance(key, top) == 1:
+                # "sed -i -e 's/{}/{}/g' *.tex".format(key, top)
+                import os
+                replpaths = ' '.join([relpath(p, os.getcwd()) for p in inverse[key]])
+                sedlines.append("sed -i -e 's/{}/{}/g' {}".format(key, top, replpaths))
+        candidate_typos[key] = candidates
+        print('Cannot find key = %r' % (key,))
+        print('Did you mean? %r' % (candidates,))
+
+    print('Quick fixes')
+    print('\n'.join(sedlines))
+
+    # group by file
+    just = max([0] + ut.lmap(len, missing_keys))
+    missing_fpaths = [inverse[key] for key in missing_keys]
+    for fpath in sorted(set(ut.flatten(missing_fpaths))):
+        ut.fix_embed_globals()
+        subkeys = [k for k in missing_keys if fpath in inverse[k]]
+        print('')
+        ut.cprint('--- Missing Keys ---', 'blue')
+        ut.cprint('fpath = %r' % (fpath,), 'blue')
+        ut.cprint('{} | {}'.format('Missing'.ljust(just), 'Did you mean?'), 'blue')
+        for key in subkeys:
+            print('{} | {}'.format(
+                ut.highlight_text(key.ljust(just), 'red'),
+                ' '.join(candidate_typos[key]))
+            )
 
     # for key in list(bibtex_dict.keys()):
+
     for key in key_list:
         try:
             entry = bibtex_dict[key]
         except KeyError:
-            candidates = ut.closet_words(key, list(bibtex_dict.keys()), num=5, subset=True)
-            print('Cannot find key = %r' % (key,))
-            print('Did you mean? %r' % (candidates,))
-            raise
+            continue
         self = BibTexCleaner(key, entry)
 
         if debug_author is not None:
