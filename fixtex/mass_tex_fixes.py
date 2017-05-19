@@ -113,14 +113,42 @@ def conjugate_stuff():
 def find_citations(text):
     """
     tex_fpath = 'chapter1-intro.tex'
+
+    Args:
+        text (str):
+
+    Returns:
+        list: citekey_list
+
+    CommandLine:
+        python -m fixtex.mass_tex_fixes find_citations
+
+    Example:
+        >>> # DISABLE_DOCTEST
+        >>> from fixtex.mass_tex_fixes import *  # NOQA
+        >>> text = ut.codeblock(
+            '''
+            \cite{foo}
+            \cite[311--220]{bar}
+            \% \cite{baz}
+            % \cite{biz}
+            \cite{spam, eggs}
+            \cite{spam, eggs,
+                cheese}
+            ''')
+        >>> citekey_list = find_citations(text)
+        >>> result = ('citekey_list = %s' % (ut.repr2(citekey_list),))
+        >>> print(result)
+        >>> assert citekey_list == ['foo', 'bar', 'baz', 'spam', 'eggs', 'spam', 'eggs', 'cheese']
     """
 
     # remove comments
-    text = re.sub('%.*', '', text)
+    tex_comment_pattern = ut.negative_lookbehind(r'\\') + '%.*'
+    text_ = re.sub(tex_comment_pattern, '', text)
 
-    pattern = 'cite{' + ut.named_field('contents', '[^}]*') + '}'
+    pattern = r'cite(\[[^]]*\])?{' + ut.named_field('contents', '[^}]*') + '}'
     citekey_list = []
-    for match in re.finditer(pattern, text, re.MULTILINE | re.DOTALL):
+    for match in re.finditer(pattern, text_, re.MULTILINE | re.DOTALL):
         contents = match.groupdict()['contents']
         #match.string[match.start():match.end()]
         citekey_list.extend(contents.replace(' ', '').replace('\n', '').split(','))
@@ -217,6 +245,9 @@ def fix_section_common_errors(tex_fpath, dryrun=True):
 
 
 def find_used_citations(tex_fpath_list, return_inverse=False):
+    """
+    fpaths = get_thesis_tex_fpaths()
+    """
     citekey_list = []
     inverse = ut.ddict(list)
     for tex_fpath in tex_fpath_list:
@@ -245,6 +276,9 @@ def get_thesis_tex_fpaths():
         'chapter*.tex',
         'sec-*.tex',
         'figdef*.tex',
+        'pairwise-classifier.tex',
+        'graph-id.tex',
+        'appendix.tex',
         'def.tex',
         'main.tex',
         'graph_id.tex',

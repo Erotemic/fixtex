@@ -313,6 +313,8 @@ def find_item_types(clean_text):
 
 def main(bib_fpath=None):
     r"""
+    intro point to fixbib script
+
     CommmandLine:
         fixbib
         python -m fixtex bib
@@ -328,6 +330,7 @@ def main(bib_fpath=None):
     dirty_text = ut.read_from(bib_fpath)
 
     from os.path import exists, relpath
+    from fixtex.mass_tex_fixes import find_used_citations, get_thesis_tex_fpaths
 
     if exists('custom_extra.bib'):
         dirty_text += '\n'
@@ -336,6 +339,10 @@ def main(bib_fpath=None):
     #udata = dirty_text.decode("utf-8")
     #dirty_text = udata.encode("ascii", "ignore")
     #dirty_text = udata
+
+    # parser = bparser.BibTexParser()
+    # bib_database = parser.parse(dirty_text)
+    # d = bib_database.get_entry_dict()
 
     print('BIBTEXPARSER LOAD')
     parser = bparser.BibTexParser(ignore_nonstandard_types=False)
@@ -367,7 +374,6 @@ def main(bib_fpath=None):
 
     # The bibtext is now clean. Print it to stdout
     #print(clean_text)
-    from fixtex.mass_tex_fixes import find_used_citations, get_thesis_tex_fpaths
     verbose = None
     if verbose is None:
         verbose = 1
