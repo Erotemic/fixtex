@@ -23,14 +23,9 @@ import bibtexparser
 from bibtexparser.bwriter import BibTexWriter
 import logging
 import logging.config
-from fixtex.latex_parser import LatexDocPart
-print, rrr, profile = ut.inject2(__name__, '[texfix]')
+from fixtex import latex_parser
+print, rrr, profile = ut.inject2(__name__)
 
-
-#def fix_acronmy_capitlaization():
-#    ACRONYMN_LIST
-#    text = ut.read_from(tex_fpath)
-#    text
 
 logger = logging.getLogger(__name__)
 logging.config.dictConfig({
@@ -64,7 +59,7 @@ def testdata_main(**kwargs):
     >>> from texfix import *  # NOQA
     >>> self = root = testdata_main()
     """
-    root = LatexDocPart.parse_fpath('main.tex', **kwargs)
+    root = latex_parser.LatexDocPart.parse_fpath('main.tex', **kwargs)
     return root
 
 
@@ -75,7 +70,12 @@ def testdata_fpaths():
         'chapter*.tex',
         'sec-*.tex',
         'figdef*.tex',
-        'def.tex'
+        'def.tex',
+        'pairwise-classifier.tex',
+        'graph-id.tex',
+        'appendix.tex',
+        'main.tex',
+        'graph_id.tex',
     ]
     exclude_dirs = ['guts']
     tex_fpath_list = sorted(
@@ -106,7 +106,7 @@ def check_doublewords():
     """
     # TODO: Do this on a per section basis to remove math considerations automagically
     root = testdata_main(ignoreinputstartswith=['def', 'Crall', 'header', 'colordef', 'figdef'])
-    #root = LatexDocPart.parse_fpath('chapter4-application.tex')
+    #root = latex_parser.LatexDocPart.parse_fpath('chapter4-application.tex')
     root._config['asmarkdown'] = True
     root._config['numlines'] = 999
     #text = root.summary_str(outline=True)
@@ -152,8 +152,10 @@ def check_doublewords():
     print('found_lines = ' + '\n'.join(found_lines))
     print('found_duplicates = ' + ut.repr3(found_duplicates, nl=1))
 
+    constants_tex_fixes.CAPITAL_LIST
+
     proper_words = ['Identification', 'Park.', 'Discussion', 'Hamming',
-                    'Grevy', 'Vector', 'Affine', 'Equation',
+                    'Grevy', 'Affine', 'Equation',
                     'Sweetwaters', 'National', 'Nairobi', 'The', 'Hessian',
                     'Fisher', 'Gaussian', 'Section', "Grevy's", 'Masai',
                     'Figure', 'Jason', 'March', 'Parham', 'Euclidean', 'Bayes',
@@ -544,7 +546,7 @@ def fix_section_title_capitalization(tex_fpath, dryrun=True):
 
         #new_section_title = section_title.lower()
         new_text = dict_['spaces'] + '\\' + dict_['section_type'] + '{' + new_section_title + '}'
-        VERBOSE = True
+        VERBOSE = 0
         if VERBOSE:
             old_text = match.string[slice(*match.span())]
             if new_text != old_text:
@@ -565,6 +567,109 @@ def fix_section_title_capitalization(tex_fpath, dryrun=True):
         ut.print_difftext(ut.get_textdiff(text, new_text, 0))
     #print(new_text[0:100])
 
+def fix_sentences():
+    """
+    fixtex --fixsent
+    """
+    text = ut.read_from('main.tex')
+    root = latex_parser.LatexDocPart.parse_text(text, debug=0)
+    document = root.find_descendant_type('document')
+    chapters = list(document.find_descendant_types('chapter'))
+
+    def separate_math(line):
+        # Break line into math and english parts
+        mathsep = ut.negative_lookbehind(re.escape('\\')) + re.escape('$')
+        pos = [0]
+        for count, match in enumerate(re.finditer(mathsep, line)):
+            pos.append(match.start() if count % 2 == 0 else match.end())
+        pos.append(len(line))
+        english = []
+        math = []
+        for count, (l, r) in enumerate(ut.itertwo(pos)):
+            if count % 2 == 0 and line[l:r]:
+                english.append(line[l:r])
+            else:
+                math.append(line[l:r])
+        return english, math
+
+    def print_acronymn_def(english_line):
+        words = re.split('[~\s]', english_line.rstrip('.'))
+        words = [w.rstrip(',').rstrip('.') for w in words]
+        flag = 0
+        for count, word in enumerate(words):
+            if re.match('\\([A-Z]+\\)', word):
+                ut.cprint(word, 'blue')
+                flag = True
+        if flag:
+            print(re.sub('\\\\cite{[^}]*}', '', line))
+
+    def has_consec_cap_words(words):
+        for count, (u, v) in enumerate(ut.itertwo(words)):
+            if u[0].isupper() and v[0].isupper():
+                if count > 0:
+                    return True
+
+    import re
+    for chapter in chapters:
+        found = []
+        ut.cprint(chapter.fpath_root(), 'yellow')
+        for line in chapter.find_sentences():
+            english, math = separate_math(line)
+            english_line = ' '.join(english).replace(',', '').rstrip('.').strip(' ')
+            words = re.split('[~\s]+', english_line)
+            words = [w.rstrip(',').rstrip('.') for w in words]
+
+            if has_consec_cap_words(words):
+                print(line)
+
+            # print_acronymn_def(english_line)
+
+            if 'locality sensitive' in line:
+                print("LSH NEEDS DASH")
+
+            multicap_words = []
+            for count, word in enumerate(words):
+                word = word.strip(')').strip('(')
+                if sum(c.isupper() for c in word) > 1:
+                    if word.startswith('\\') and word.endswith('{}'):
+                        continue
+                    if word.startswith('\\Cref') and word.endswith('}'):
+                        if count != 0:
+                            print("FIX CREF UPPER")
+                            print(line)
+                        continue
+                    if word.startswith('\\cref') and word.endswith('}'):
+                        if count == 0:
+                            print("FIX CREF LOWER")
+                            print(line)
+                        continue
+
+                    if not word.isalpha():
+                        continue
+                    multicap_words.append(word)
+
+            if multicap_words:
+                found.extend(multicap_words)
+        print(ut.repr4(ut.dict_hist(found)))
+
+    import utool
+    utool.embed()
+
+    # if new_text != text:
+    #     # root = latex_parser.LatexDocPart.parse_text(text, debug=0)
+    #     # comment = root.children[0]
+    #     # self = root.children[2].children[1]
+    #     # self = self.children[1]
+    #     # print(ut.repr4(self.lines))
+    #     # print(ut.repr4(self._local_sentences()))
+
+    #     types = latex_parser.TexNest.headers
+    #     for type_ in types:
+    #         for sec in root.find_descendant_types(type_):
+    #             print('sec = %r' % (sec,))
+    #             print(sec)
+    # pass
+
 
 def fix_section_common_errors(tex_fpath, dryrun=True):
     # Read in text and ensure ascii format
@@ -584,14 +689,25 @@ def fix_section_common_errors(tex_fpath, dryrun=True):
         ut.print_difftext(ut.get_textdiff(text, new_text, 0))
 
 
-def find_used_citations(tex_fpath_list):
+def find_used_citations(tex_fpath_list, return_inverse=False):
+    """
+    fpaths = get_thesis_tex_fpaths()
+    """
     citekey_list = []
+    inverse = ut.ddict(list)
     for tex_fpath in tex_fpath_list:
         text = ut.read_from(tex_fpath)
         #print('\n\n+-----')
         local_cites = find_citations(text)
         citekey_list.extend(local_cites)
-    return citekey_list
+        for key in local_cites:
+            inverse[key].append(tex_fpath)
+
+    citekey_list = sorted(set(citekey_list))
+    if return_inverse:
+        return citekey_list, inverse
+    else:
+        return citekey_list
 
 
 def findcite():
@@ -733,6 +849,12 @@ def main():
             fix_section_title_capitalization(tex_fpath, dryrun)
 
     @ut.argv_flag_dec(indent='    ')
+    def fixsent():
+        fix_sentences()
+        # for tex_fpath in testdata_fpaths():
+        #     fix_section_title_capitalization(tex_fpath, dryrun)
+
+    @ut.argv_flag_dec(indent='    ')
     def glossterms():
         re_glossterm = ut.named_field('glossterm', '.' + ut.REGEX_NONGREEDY)
         pat = r'\\glossterm{' + re_glossterm + '}'
@@ -862,7 +984,7 @@ def main():
 
         for fpath in fpaths:
             text = ut.readfrom(fpath)
-            root = LatexDocPart.parse_text(text, debug=0)
+            root = latex_parser.LatexDocPart.parse_text(text, debug=0)
 
             if ut.get_argflag('--fixcref'):
                 root.find(' \\\\cref')
@@ -908,7 +1030,7 @@ def main():
 
         for fpath in fpaths:
             text = ut.readfrom(fpath)
-            root = LatexDocPart.parse_text(text, debug=0)
+            root = latex_parser.LatexDocPart.parse_text(text, debug=0)
 
             # HACK
             new_text = '\n'.join(root.reformat_blocks(debug=0))
@@ -984,6 +1106,7 @@ def main():
     reformat()
     outline()
     tozip()
+    fixacc()
 
     ut.argv_flag_dec(check_doublewords, indent='    ')()
     ut.argv_flag_dec(findcite, indent='    ')()

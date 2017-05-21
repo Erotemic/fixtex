@@ -330,7 +330,7 @@ def main(bib_fpath=None):
     dirty_text = ut.read_from(bib_fpath)
 
     from os.path import exists, relpath
-    from fixtex.mass_tex_fixes import find_used_citations, get_thesis_tex_fpaths
+    from fixtex.fix_tex import find_used_citations, testdata_fpaths
 
     if exists('custom_extra.bib'):
         dirty_text += '\n'
@@ -381,7 +381,7 @@ def main(bib_fpath=None):
     # Find citations from the tex documents
     key_list = None
     if key_list is None:
-        fpaths = get_thesis_tex_fpaths()
+        fpaths = testdata_fpaths()
         key_list, inverse = find_used_citations(fpaths, return_inverse=True)
         ignore = ['JP', '?', 'hendrick']
         for item in ignore:

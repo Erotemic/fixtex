@@ -17,9 +17,9 @@ ACRONYMN_LIST = [
     ('Fisher Vector', 'FV'),
     ('Vector of Locally Aggregated Descriptors', 'VLAD'),
     ('Gaussian mixture model', 'GMM'),
-    ('Hamming Embedding', 'HE'),
+    ('Hamming embedding', 'HE'),
     (r'Local \Naive Bayes Nearest Neighbor', 'LNBNN'),
-    (r'\Naive Bayes Nearest Neighbor', 'LNBNN'),
+    (r'\naive Bayes nearest Neighbor', 'LNBNN'),
     ('Fast Library for Approximate Nearest Neighbors', 'FLANN'),
 
     ('Leaky Rectified Linear Unit', 'LRLU'),
@@ -32,21 +32,20 @@ CAPITAL_LIST = [
     'Great Zebra and Giraffe Count',
     'Gauss',
     'Hessian',
+    'Poisson',
     'Hamming',
     #'TF-IDF',
     'Bayes',
     'Fisher',
-    'Hamming',
     'Lincoln-Petersen',
-    'Fisher Vector',
 ]
 
 CAPITAL_TITLE_LIST = CAPITAL_LIST[:]
 
 
-for full, acro in ACRONYMN_LIST:
-    capfull = full[0].upper() + full[1:]
-    CAPITAL_TITLE_LIST.append(capfull)
+# for full, acro in ACRONYMN_LIST:
+#     capfull = full[0].upper() + full[1:]
+#     CAPITAL_TITLE_LIST.append(capfull)
 
 
 AUTHOR_NAME_MAPS = {

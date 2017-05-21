@@ -14,8 +14,6 @@
 
 ./texfix.py --fpaths chapter4-application.tex --outline --showtype --numlines --singleline --noindent
 
-./texfix.py --fpaths chapter4-application.tex --outline --numlines --singleline --sections=0:-6
-
 ./texfix.py --fpaths chapter4-application.tex --outline --numlines --singleline --keeplabel --fpaths figdef1.tex
 
 # Write outline for entire thesis
@@ -35,7 +33,11 @@
 from __future__ import absolute_import, division, print_function, unicode_literals
 import re
 import utool as ut
-print, rrr, profile = ut.inject2(__name__, '[texparse]')
+print, rrr, profile = ut.inject2(__name__)
+
+
+RE_TEX_COMMENT = ut.negative_lookbehind(re.escape('\\')) + re.escape('%') + '.*$'
+RE_VARNAME = ut.REGEX_VARNAME
 
 
 def find_nth_pos(str_, list_, n):
@@ -73,8 +75,6 @@ class _Reformater(object):
             'compress_consecutive': False,
             #'skip_subtypes': ['comment', 'def'],
             'skip_subtypes': ['comment', 'devmark'],
-            #'skip_types': ['comment', 'keywords', 'outline', 'devnewpage'],
-            # 'skip_types': ['comment', 'keywords', 'outline', 'devnewpage', 'equation', 'devcomment'],
             'skip_types': ['comment', 'keywords', 'outline', 'devnewpage',
                            'devcomment', 'renewcommand', 'newcommand', 'setcounter',
                            'bibliographystyle', 'bibliography'],
@@ -109,7 +109,7 @@ class _Reformater(object):
             fullformat_types = self._config['full']
         else:
             fullformat_types = []
-        container_type = self.get_ancestor(self.toc_heirarchy).type_
+        container_type = self.get_ancestor(TexNest.toc_heirarchy).type_
         return container_type in fullformat_types
 
     def _summary_headerblocks(self, outline=False):
@@ -128,14 +128,14 @@ class _Reformater(object):
         return header_blocks
 
     def is_header(self):
-        return self.type_ in self.toc_heirarchy
+        return self.type_ in TexNest.toc_heirarchy
 
     def get_lines(self, outline=False):
         # Use ... to represent lines unless a full reformat is requested for anutline
         if self.in_full_outline_section(outline):
             header_block = ut.unindent('\n'.join(self.reformat_blocks(stripcomments=False)))
         elif self._config['numlines'] == 0:
-            if self.type_ == 'lines' and self.parent.type_ in ['itemize', 'enumerate']:
+            if self.type_ == 'lines' and self.parent.type_ in TexNest.listables:
                 header_block = ''
             else:
                 if self.subtype == 'space':
@@ -148,12 +148,12 @@ class _Reformater(object):
                 header_block = ''
             else:
                 if self._config['asmarkdown']:
-                    header_block = '\n'.join(self.get_sentences())
+                    header_block = '\n'.join(self._local_sentences())
                 else:
                     header_block = ut.unindent('\n'.join(self.reformat_blocks(stripcomments=False)))
 
             if self._config['numlines'] >= 1 and self.subtype == 'par':
-                if self.parent_type() in self.rawformat_types:
+                if self.parent_type() in TexNest.rawformat_types:
                     #if self.parent.type_ == 'pythoncode*':
                     # hack to not do next hack for pythoncode
                     header_block = '\n'.join(self.lines)
@@ -190,7 +190,11 @@ class _Reformater(object):
                 # Header is multiline
                 header_block = '\n'.join(self.lines)
                 max_width = self._config['max_width']
-                header_block = ut.format_multi_paragraphs(header_block, myprefix=True, sentence_break=True, max_width=max_width)
+                header_block = ut.format_multi_paragraphs(header_block,
+                                                          myprefix=True,
+                                                          sentence_break=True,
+                                                          max_width=max_width)
+                # HACKS FOR PERSONAL STUFF
                 if self.type_ == 'ImageCommand':
                     header_block = header_block.replace('ImageCommand', 'ImageCommandDraft')
                 if self.type_ == 'MultiImageFigure':
@@ -213,7 +217,7 @@ class _Reformater(object):
                 if header_block.endswith('}'):
                     header_block = header_block[:-1]
 
-                header_level = (self.toc_heirarchy + ['paragraph']).index(self.type_) + 1
+                header_level = (TexNest.toc_heirarchy + ['paragraph']).index(self.type_) + 1
 
                 if header_level == 1:
                     header_block =  header_block + '\n' + '=' * len(header_block)
@@ -222,7 +226,7 @@ class _Reformater(object):
                 else:
                     header_block = ('#' * header_level) + ' ' + header_block
             except ValueError:
-                if self.type_ in ['itemize', 'enumerate']:
+                if self.type_ in TexNest.listables:
                     header_block = ''
                 elif self.type_ in ['item']:
                     header_block = header_block.replace('\\item', '*')
@@ -281,6 +285,7 @@ class _Reformater(object):
             skip_figures = self._config['asmarkdown']
             skip_figures = False
             if skip_figures:
+                # HACK FOR THESIS
                 hackfigtypes = ['mergecase', 'splitcase', 'popest',
                                 'ThreeSixty', 'PoseExample',
                                 'OcclusionAndDistractors',
@@ -288,9 +293,9 @@ class _Reformater(object):
                                 'OccurrenceCompliment', 'Quality', 'Age',
                                 'doubledepc']
                 skip_types_ += hackfigtypes
-                if x.type_.lower().endswith('figure'):
+                if node.type_.lower().endswith('figure'):
                     return False
-            return x.type_ not in skip_types
+            return node.type_ not in skip_types
 
         skip_type_flags = [is_skiptype(x)  for x in child_nodes]
         child_nodes = ut.compress(child_nodes, skip_type_flags)
@@ -300,7 +305,7 @@ class _Reformater(object):
 
         if self._config['remove_leading_space']:
             if len(child_nodes) > 2:
-                # remove first space in sections
+                # remove first space in each section
                 if child_nodes[0].subtype == 'space':
                     child_nodes = child_nodes[1:]
 
@@ -335,10 +340,6 @@ class _Reformater(object):
                             node.subtype = node_.subtype
                         node.lines += node_.lines[:]
                     child_nodes.append(node)
-
-        #if self.type_ == 'chapter':
-        #    section_slice = ut.get_argval('--sections', type_='fuzzy_subset', default=slice(None, None, None))
-        #    child_nodes = child_nodes[section_slice]
 
         header_blocks = self._summary_headerblocks(outline=outline)
         # Make child strings
@@ -527,9 +528,10 @@ class _Reformater(object):
         redef_list = list(self.find_descendant_types('renewcommand'))
         def_list += redef_list
         defmap = ut.odict()
+        field = ut.named_field
         newcommand_pats = [
-            '\\\\(re)?newcommand{' + ut.named_field('key', '\\\\' + ut.REGEX_VARNAME) + '}{' + ut.named_field('val', '.*') + '}',
-            '\\\\(re)?newcommand{' + ut.named_field('key', '\\\\' + ut.REGEX_VARNAME) + '}\[1\]{' + ut.named_field('val', '.*') + '}',
+            '\\\\(re)?newcommand{' + field('key', '\\\\' + RE_VARNAME) + '}{' + field('val', '.*') + '}',
+            '\\\\(re)?newcommand{' + field('key', '\\\\' + RE_VARNAME) + '}\[1\]{' + field('val', '.*') + '}',
         ]
         for defnode in def_list:
             sline = '\n'.join(defnode.lines).strip()
@@ -543,7 +545,7 @@ class _Reformater(object):
                     defmap[nargs] = cmd_map = defmap.get(nargs, {})
                     cmd_map[key] = val
 
-        usage_pat = ut.regex_or(['\\\\' + ut.REGEX_VARNAME + '{}', '\\\\' + ut.REGEX_VARNAME])
+        usage_pat = ut.regex_or(['\\\\' + RE_VARNAME + '{}', '\\\\' + RE_VARNAME])
         cmd_map0 = defmap.get(0, {})
         for key in cmd_map0.keys():
             val = cmd_map0[key]
@@ -577,47 +579,6 @@ class _Reformater(object):
             cmd_map.update(crall_defmap.get(0, {}))
             cmd_map1.update(crall_defmap.get(1, {}))
         return cmd_map, cmd_map1
-        #else:
-        #    lines = []
-        #    lines += ut.read_from('def.tex').split('\n')
-        #    cmd_map = ut.odict()
-        #    cmd_map1 = ut.odict()
-        #    pat = '\\\\(re)?newcommand{' + ut.named_field('key', '\\\\' + ut.REGEX_VARNAME) + '}{' + ut.named_field('val', '.*') + '}'
-        #    pat1 = '\\\\(re)?newcommand{' + ut.named_field('key', '\\\\' + ut.REGEX_VARNAME) + '}\[1\]{' + ut.named_field('val', '.*') + '}'
-
-        #    for line in lines:
-        #        sline = line.strip()
-        #        if sline.startswith('\\newcommand'):
-        #            match = re.match(pat, sline)
-        #            if match is not None:
-        #                key = match.groupdict()['key']
-        #                val = match.groupdict()['val']
-        #                val = val.replace('\\zspace', '')
-        #                val = val.replace('\\xspace', '')
-        #                cmd_map[key] = val
-        #            match = re.match(pat1, sline)
-        #            if match is not None:
-        #                key = match.groupdict()['key']
-        #                val = match.groupdict()['val']
-        #                val = val.replace('\\zspace', '')
-        #                val = val.replace('\\xspace', '')
-        #                cmd_map1[key] = val
-
-        #    # Expand inside defs
-        #    usage_pat = ut.regex_or(['\\\\' + ut.REGEX_VARNAME + '{}', '\\\\' + ut.REGEX_VARNAME])
-        #    for key in cmd_map.keys():
-        #        val = cmd_map[key]
-        #        changed = None
-        #        while changed or changed is None:
-        #            changed = False
-        #            for match in re.findall(usage_pat, val):
-        #                key2 = match.replace('{}', '')
-        #                if key2 in cmd_map:
-        #                    val = val.replace(match, cmd_map[key2])
-        #                    changed = True
-        #            if changed:
-        #                cmd_map[key] = val
-        #    return cmd_map, cmd_map1
 
     def reformat_text(self):
         return '\n'.join(self.reformat_blocks())
@@ -626,11 +587,7 @@ class _Reformater(object):
         """
         # TODO: rectify this with summary string blocks
         """
-
-        #use_indent = False
-        #sentence_break = False
-        is_rawformat = self.parent_type() in self.rawformat_types
-        # is_rawformat = True
+        is_rawformat = self.parent_type() in TexNest.rawformat_types
         if debug:
             print('-----------------')
             print('Formating Part %s - %s' % (self.type_, self.subtype,))
@@ -700,7 +657,7 @@ class _Reformater(object):
         blocks = (header_blocks + body_blocks + footer_blocks)
 
         if stripcomments:
-            # pat = ut.REGEX_LATEX_COMMENT
+            # pat = RE_TEX_COMMENT
             blocks = ut.lmap(strip_latex_comments, blocks)
             #pat = (ut.negative_lookbehind(re.escape('\\')) + re.escape('%')) + '.*'
             # blocks = [re.sub('\n *' + pat, '', block, flags=re.MULTILINE) for block in blocks]
@@ -710,22 +667,37 @@ class _Reformater(object):
 
 
 def strip_latex_comments(block):
-    pat = ut.REGEX_LATEX_COMMENT
+    pat = RE_TEX_COMMENT
     #pat = (ut.negative_lookbehind(re.escape('\\')) + re.escape('%')) + '.*'
     block = re.sub('\n *' + pat, '', block, flags=re.MULTILINE)
     block = re.sub(pat, '', block, flags=re.MULTILINE)
     return block
 
 
-class _LatexConst(object):
+class TexNest(object):
+    """
+    Defines the table of contents heirarchy.
+
+    This should probably just turn into a grammar.
+    """
     # table of contents heirarchy
     #toc_heirarchy = ['chapter', 'section', 'subsection', 'subsubsection']
-    toc_heirarchy = ['document', 'chapter', 'section', 'subsection', 'subsubsection']
+    toc_heirarchy = ['document', 'chapter', 'section', 'subsection',
+                     'subsubsection']
     # things that look like \<type_>
-    header_list = ['chapter', 'section', 'subsection', 'subsubsection', 'paragraph', 'item']
+    headers = ['chapter', 'section', 'subsection', 'subsubsection',
+               'paragraph', 'item']
+
     # things that look like \begin{<type_>}\end{type_>}
-    section_list = ['document', 'equation', 'itemize', 'enumerate', 'table', 'comment', 'pythoncode*']
-    container_list = toc_heirarchy + ['paragraph', 'item', 'if', 'else']
+    sections = ['document', 'equation', 'table', 'comment', 'pythoncode*']
+
+    # things that can have nested items
+    listables = ['enumerate', 'itemize']
+    # TODO: parse newlist commands
+    # HACK CUSTOM newlist commands
+    listables += ['enumin', 'enumln', 'itemln', 'itemin']
+
+    containers = toc_heirarchy + ['paragraph', 'item', 'if', 'else']
 
     # This defines what is allowed to be nested in what
     ancestor_lookup = {
@@ -735,17 +707,19 @@ class _LatexConst(object):
         'subsection'    : ['section'],
         'subsubsection' : ['subsection'],
         'paragraph'     : toc_heirarchy + ['item'],
-        'itemize'       : toc_heirarchy + ['item'],
-        'enumerate'     : toc_heirarchy + ['item'],
         'pythoncode*'   : toc_heirarchy,
         'equation'      : toc_heirarchy + ['paragraph', 'item'],
         'comment'       : toc_heirarchy + ['paragraph', 'item'],
-        'item'          : ['itemize', 'enumerate'],
         'table'         : ['renewcommand', 'newcommand'] + [toc_heirarchy],
         'if'            : ['if'] + toc_heirarchy + ['paragraph', 'item'],
         'fi'            : 'if',
         'else'          : 'if',
     }
+    for listable in listables:
+        ancestor_lookup[listable] = toc_heirarchy + ['item']
+    ancestor_lookup['item'] = listables
+    sections += listables
+
     rawformat_types = ['equation', 'comment', 'pythoncode*']
 
 
@@ -855,6 +829,11 @@ class _Parser(object):
             print(actstr )
             #print('root = %r' % (root.tostr(),))
 
+        # We push unfinished nodes onto the stack, and can always modify
+        # the head. When we are done, we pop the node from the stack.
+        # TODO; parse with a stack instead
+        nest_stack = []
+
         for count, line in enumerate(buff):
             #print(repr(line))
             action = []
@@ -863,10 +842,7 @@ class _Parser(object):
             sline = line.strip()
             indent = ut.get_indentation(line)  # NOQA
 
-            # header_list = ['chapter', 'section', 'subsection', 'paragraph', 'item']
-            # section_list = ['equation', 'itemize', 'table', 'comment']
-            header_list = cls.header_list
-            section_list = cls.section_list
+            headers = cls.headers
 
             try:
                 parent_type = node.parent_type()
@@ -880,27 +856,31 @@ class _Parser(object):
             found = False
 
             # Check for standard chapter, section, subsection header definitions
-            for key in header_list:
+            for key in headers:
                 if sline.startswith('\\' + key) and not in_comment:
                     # Mabye this is a naming issue.
                     anscestor = node.find_root(key)  # FIXME: should be ancestor?
                     RECORD_ACTION('HEADER(%s)' % key)
                     node = anscestor.append_part(key, line_num=count)
                     node.lines.append(line)
+                    nest_stack  # TODO multiline headers
                     found = True
                     break
 
             if not found:
                 # Check for begin / end blocks like document, equation, and itemize.
-                for key in section_list:
+                for key in TexNest.sections:
                     if sline.startswith('\\begin{' + key + '}') and not in_comment:
                         # Mabye this is a naming issue.
                         anscestor = node.find_root(key)  # FIXME: should be ancestor?
                         node = anscestor.append_part(key, line_num=count)
                         RECORD_ACTION('BEGIN_KEY(%s)' % key)
-                        #RECORD_ACTION('ANCESTOR(%s)' % (anscestor.nice()))
-                        #RECORD_ACTION('node(%s)' % (node.nice()))
+                        RECORD_ACTION('ANCESTOR(%s)' % (anscestor.nice()))
+                        RECORD_ACTION('node(%s)' % (node.nice()))
                         node.lines.append(line)
+
+                        nest_stack.append(node)
+
                         found = True
                         break
 
@@ -985,7 +965,7 @@ class _Parser(object):
                                'renewcommand', 'devcomment', 'setcounter',
                                'bibliographystyle', 'bibliography' ]
             if not found and not in_comment:
-                texcmd_pat = ut.named_field('texcmd', ut.util_regex.REGEX_VARNAME)
+                texcmd_pat = ut.named_field('texcmd', RE_VARNAME)
                 regex = r'\s*\\' + texcmd_pat + '{'
                 match = re.match(regex, sline)
                 if match:
@@ -1011,7 +991,12 @@ class _Parser(object):
                                     if fname.startswith(tmp):
                                         flag = False
                                 if flag:
-                                    input_node = LatexDocPart.parse_fpath(fname)
+                                    try:
+                                        input_node = LatexDocPart.parse_fpath(fname, debug=debug)
+                                    except Exception as ex:
+                                        print('FAILED PARSING %r' % (fname,))
+                                        pass
+
                                     node = node.append_part(input_node, line_num=count)
                                 else:
                                     node = node.append_part(texmcd, istexcmd=True, line_num=count)
@@ -1104,7 +1089,7 @@ class _Parser(object):
         return root
 
 
-class LatexDocPart(_Reformater, _Parser, _LatexConst, ut.NiceRepr):
+class LatexDocPart(_Reformater, _Parser, TexNest, ut.NiceRepr):
     """
     Class that contains parse-tree-esque heierarchical blocks of latex and can
     reformat them.
@@ -1162,7 +1147,8 @@ class LatexDocPart(_Reformater, _Parser, _LatexConst, ut.NiceRepr):
         if self.subtype is not None:
             type_str += '.' + self.subtype
         #return '(%s -- %d) L%s' % (type_str, len(self.lines), self.level)
-        return '(%s -- %d)' % (type_str, len(self.lines))
+        return '(%s -- %d -- %d)' % (type_str, len(self.lines),
+                                     len(self.children))
 
     def nice(self):
         return self.__nice__()
@@ -1174,14 +1160,26 @@ class LatexDocPart(_Reformater, _Parser, _LatexConst, ut.NiceRepr):
         return self.tostr()
 
     def tolist(self):
-        list_ = [child if len(child.children) == 0 else child.tolist() for child in self.children]
+        list_ = [child if len(child.children) == 0 else child.tolist()
+                 for child in self.children]
         return list_
 
-    def tolist2(self):
+    def flatten(self):
+        """
+        Flattens entire structure.
+        """
         if len(self.children) == 0:
-            return [self]
+            yield self
         else:
-            return [self.lines[:]] + [child.tolist2() for child in self.children]
+            for part in self.lines:
+                yield part
+            for child in self.children:
+                for part in child.flatten():
+                    yield part
+            for part in self.footer:
+                yield part
+            # return [self.lines[:]] + [child.tolist2() for child in
+            #                           self.children] + [self.footer[:]]
 
     def tostr(self):
         lines = self.lines[:]
@@ -1225,7 +1223,7 @@ class LatexDocPart(_Reformater, _Parser, _LatexConst, ut.NiceRepr):
     def title(self):
         if len(self.lines) == 0:
             return None
-        valid_headers = self.header_list[:]
+        valid_headers = TexNest.headers[:]
         valid_headers.remove('item')
         # parse curlies
         if self.type_ in valid_headers:
@@ -1280,6 +1278,8 @@ class LatexDocPart(_Reformater, _Parser, _LatexConst, ut.NiceRepr):
 
     def find(self, regexpr_list, findtype=('lines', 'par'), verbose=False):
         r"""
+        Finds all nodes of a given type:
+
         list_ = ut.total_flatten(root.tolist2())
         list_ = root.find(' \\\\cref')
         self = list_[-1]
@@ -1287,7 +1287,7 @@ class LatexDocPart(_Reformater, _Parser, _LatexConst, ut.NiceRepr):
         returnlist = []
         regexpr_list = ut.ensure_iterable(regexpr_list)
         if self.type_ in [findtype[0]] and (findtype[1] is None or self.subtype in [findtype[1]]):
-            found_lines, found_lxs = ut.greplines(self.get_sentences(), regexpr_list)
+            found_lines, found_lxs = ut.greplines(self._local_sentences(), regexpr_list)
             found_fpath_list = ['<string>']
             grepresult = [found_fpath_list, [found_lines], [found_lxs]]
             grepstr = ut.make_grep_resultstr(grepresult, regexpr_list, reflags=0, colored=True)
@@ -1421,8 +1421,14 @@ class LatexDocPart(_Reformater, _Parser, _LatexConst, ut.NiceRepr):
 
         return figdict, figdict2
 
-    def get_sentences(self):
-        lines = [re.sub(ut.REGEX_LATEX_COMMENT + r'\s*$', '', l, flags=re.MULTILINE) for l in self.lines]
+    def find_sentences(self):
+        for lines in self.find_descendant_types('lines'):
+            if lines.subtype == 'par':
+                yield from lines._local_sentences()
+
+    def _local_sentences(self):
+        lines = [re.sub(RE_TEX_COMMENT + r'\s*$', '', l, flags=re.MULTILINE)
+                 for l in self.lines]
         # lines = ut.lmap(strip_latex_comments, self.lines)
         sentences = ut.split_sentences2('\n'.join(lines))
         return sentences
@@ -1438,12 +1444,12 @@ class LatexDocPart(_Reformater, _Parser, _LatexConst, ut.NiceRepr):
 
     def find_root(self, type_):
         node = None
-        ancestors = self.ancestor_lookup[type_]
+        ancestors = TexNest.ancestor_lookup[type_]
         node = self.get_ancestor(ancestors)
         return node
 
     def find_ancestor_container(self):
-        node = self.get_ancestor(self.container_list)
+        node = self.get_ancestor(TexNest.containers)
         return node
 
     def append_part(self, type_='root', istexcmd=False, subtype=None, line_num=None):
