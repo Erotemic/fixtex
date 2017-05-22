@@ -578,6 +578,15 @@ class _Reformater(object):
             crall_defmap = cralldef.parse_newcommands()
             cmd_map.update(crall_defmap.get(0, {}))
             cmd_map1.update(crall_defmap.get(1, {}))
+
+        extras = {
+            '\\ie': 'i.e.',
+            '\\wrt': 'w.r.t.',
+        }
+
+        for k, v in extras.items():
+            if k not in cmd_map:
+                cmd_map[k] = v
         return cmd_map, cmd_map1
 
     def reformat_text(self):

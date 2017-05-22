@@ -567,6 +567,7 @@ def fix_section_title_capitalization(tex_fpath, dryrun=True):
         ut.print_difftext(ut.get_textdiff(text, new_text, 0))
     #print(new_text[0:100])
 
+
 def fix_sentences():
     """
     fixtex --fixsent
@@ -609,51 +610,174 @@ def fix_sentences():
                 if count > 0:
                     return True
 
+    def gen_sentences():
+        for chapter in chapters:
+            # ut.cprint(chapter.fpath_root(), 'yellow')
+            for line in chapter.find_sentences():
+                context = {'chapter': chapter}
+                yield line, context
+
     import re
-    for chapter in chapters:
-        found = []
-        ut.cprint(chapter.fpath_root(), 'yellow')
-        for line in chapter.find_sentences():
-            english, math = separate_math(line)
-            english_line = ' '.join(english).replace(',', '').rstrip('.').strip(' ')
-            words = re.split('[~\s]+', english_line)
-            words = [w.rstrip(',').rstrip('.') for w in words]
+    found = ut.ddict(list)
+    for line, context in gen_sentences():
+        english, math = separate_math(line)
+        english_line = ' '.join(english).replace(',', '').rstrip('.').strip(' ')
+        words = re.split('[~\s]+', english_line)
+        words = [w.rstrip(',').rstrip('.') for w in words]
 
-            if has_consec_cap_words(words):
-                print(line)
+        if has_consec_cap_words(words):
+            print(line)
 
-            # print_acronymn_def(english_line)
+        # print_acronymn_def(english_line)
 
-            if 'locality sensitive' in line:
-                print("LSH NEEDS DASH")
+        if 'locality sensitive' in line:
+            print("LSH NEEDS DASH")
 
-            multicap_words = []
-            for count, word in enumerate(words):
-                word = word.strip(')').strip('(')
-                if sum(c.isupper() for c in word) > 1:
-                    if word.startswith('\\') and word.endswith('{}'):
-                        continue
-                    if word.startswith('\\Cref') and word.endswith('}'):
-                        if count != 0:
-                            print("FIX CREF UPPER")
-                            print(line)
-                        continue
-                    if word.startswith('\\cref') and word.endswith('}'):
-                        if count == 0:
-                            print("FIX CREF LOWER")
-                            print(line)
-                        continue
+        multicap_words = []
+        for count, word in enumerate(words):
+            word = word.strip(')').strip('(')
+            if sum(c.isupper() for c in word) > 1:
+                if word.startswith('\\') and word.endswith('{}'):
+                    continue
+                if word.startswith('\\Cref') and word.endswith('}'):
+                    if count != 0:
+                        print("FIX CREF UPPER")
+                        print(line)
+                    continue
+                if word.startswith('\\cref') and word.endswith('}'):
+                    if count == 0:
+                        print("FIX CREF LOWER")
+                        print(line)
+                    continue
+                if not word.isalpha():
+                    continue
+                multicap_words.append(word)
+        if multicap_words:
+            found[context['chapter']].append(multicap_words)
+        # print(ut.repr4(ut.dict_hist(found)))
 
-                    if not word.isalpha():
-                        continue
-                    multicap_words.append(word)
+    def english_tokens(line):
+        # Break line into math and english parts
+        mathsep = ut.negative_lookbehind(re.escape('\\')) + re.escape('$')
 
-            if multicap_words:
-                found.extend(multicap_words)
-        print(ut.repr4(ut.dict_hist(found)))
+        def clean_word(word):
+            if word.startswith('``'):
+                word = word[2:]
+            if word.endswith("''"):
+                word = word[:-2]
+            return word.strip(',').rstrip('.')
 
-    import utool
-    utool.embed()
+        prev = 0
+        tokens = []
+        for count, match in enumerate(re.finditer(mathsep, line)):
+            if count % 2 == 0:
+                curr = match.start()
+                english = line[prev:curr]
+                parts = re.split('[~\s]+', english)
+                parts = (clean_word(p) for p in parts)
+                parts = (p for p in parts if p)
+                tokens.extend(parts)
+            else:
+                curr = match.end()
+                math = line[prev:curr]
+                tokens.append(math)
+            prev = curr
+        return tokens
+
+    from fixtex.svn_converter.latexparser import DocParser
+    from fixtex.svn_converter.docnodes import CaptionNode, FigureNode
+    from fixtex.svn_converter.tokenizer import Tokenizer
+    def caption_sentences(fpath):
+        text = ut.readfrom(fpath)
+        tokenstream = Tokenizer(text).tokenize()
+        self = DocParser(tokenstream, fpath)
+        tree = self.parse()
+        for node in tree.walk():
+            if isinstance(node, FigureNode):
+                for x in node.walk():
+                    if isinstance(x, CaptionNode):
+                        for sent in ut.split_sentences2(x.resolve()):
+                            yield sent
+
+    def gen_cap():
+        fpaths = [
+            ut.truepath('~/latex/crall-thesis-2017/figdef1.tex'),
+            ut.truepath('~/latex/crall-thesis-2017/figdef2.tex'),
+            ut.truepath('~/latex/crall-thesis-2017/figdef3.tex'),
+            ut.truepath('~/latex/crall-thesis-2017/figdef4.tex'),
+            ut.truepath('~/latex/crall-thesis-2017/figdef5.tex'),
+        ]
+        for fpath in fpaths:
+            context = {'fpath': fpath}
+            for sent in caption_sentences(fpath):
+                yield sent, context
+
+    # Find A, An grammar errors
+
+    # Define special cases:
+    cons_sounds = {'unit',  'user', 'unique', 'one', 'uniform', 'unified',
+                   'useful'}
+    vowel_sounds = {'roc', 'mcc', 'lnbnn', 'l1', 'hour'}
+
+    def startswith_vowel_sound(after):
+        # do our best guess
+        if after.startswith('$'):
+            if after[1] == '8':
+                return True
+            if after[1] == 'x':
+                return True
+        if after in vowel_sounds:
+            return True
+        if after in cons_sounds:
+            return False
+        return after[0] in 'aeiou'
+
+    cmd_map, cmd_map1 = latex_parser.LatexDocPart.read_static_defs()
+
+    simple_cmd_re = re.compile('\\\\[A-Za-z]*{}')
+
+    print('\nCHECK FOR A / AN ERRORS')
+    import itertools as it
+    generators = [
+        # gen_sentences(),
+        gen_cap(),
+    ]
+
+    for line, context in it.chain(*generators):
+        words = english_tokens(line)
+        for u, v in ut.itertwo(words):
+            v_orig = v
+            if simple_cmd_re.match(v):
+                key = v[:-2]
+                try:
+                    v = cmd_map[key]
+                except:
+                    print(line)
+                    raise
+
+            v = v.split('-')[0]
+            article = u.lower()
+            if article in {'a', 'an'}:
+                after = v.lower()
+                # TODO ensure v is a singular countable noun
+                is_vowel_sound = startswith_vowel_sound(after)
+
+                flag = False
+                if article == 'a' and is_vowel_sound:
+                    flag = 'after is a consonent sound should start with a'
+                if article == 'an' and not is_vowel_sound:
+                    flag = 'after is a vowel sound should start with an'
+
+                if flag:
+                    print('---------')
+                    print(flag)
+                    print(article, after)
+                    print('{} {}'.format(u, v_orig))
+                    print(line)
+
+    # fpath = ut.truepath('~/latex/crall-thesis-2017/figdef2.tex')
+    # for sent, context in gen_cap():
+    #     print(sent)
 
     # if new_text != text:
     #     # root = latex_parser.LatexDocPart.parse_text(text, debug=0)
@@ -1106,7 +1230,7 @@ def main():
     reformat()
     outline()
     tozip()
-    fixacc()
+    fixsent()
 
     ut.argv_flag_dec(check_doublewords, indent='    ')()
     ut.argv_flag_dec(findcite, indent='    ')()
