@@ -665,7 +665,7 @@ class _Reformater(object):
             header_block_ = ut.format_multi_paragraphs(
                 header_block, myprefix=myprefix,
                 max_width=max_width,
-                sentence_break=sentence_break, debug=0 * debug)
+                sentence_break=sentence_break, debug=0)
             header_block = header_block_
         else:
             header_block = header_block
@@ -875,8 +875,12 @@ class _Parser(object):
 
         ignoreinputstartswith = ut.get_argval('--ignoreinputstartswith', type_=list, default=ignoreinputstartswith)
 
+        if name is not None and name.startswith('figdef'):
+            debug = False
+
         if debug:
             ut.colorprint(' --- PARSE LATEX --- ', 'yellow')
+            ut.colorprint('name = %r' % (name,), 'yellow')
             action = ['MAKE root']
             actstr = ut.highlight_text((', '.join(action)).ljust(25), 'yellow')
             dbgjust = 35
@@ -886,9 +890,10 @@ class _Parser(object):
         # We push unfinished nodes onto the stack, and can always modify
         # the head. When we are done, we pop the node from the stack.
         # TODO; parse with a stack instead
-        nest_stack = []
-
-        for count, line in enumerate(buff):
+        # nest_stack = []
+        buff_stack = list(reversed(list(enumerate(buff))))
+        while buff_stack:
+            count, line = buff_stack.pop()
             #print(repr(line))
             action = []
             RECORD_ACTION = action.append
@@ -898,49 +903,81 @@ class _Parser(object):
 
             headers = cls.headers
 
-            try:
-                parent_type = node.parent_type()
-            except Exception as ex:
-                ut.printex(ex, keys=['count', 'line'])
-                raise
-
-            in_comment  = parent_type == 'comment'
+            # try:
+            #     parent_type = node.parent_type()
+            # except Exception as ex:
+            #     ut.printex(ex, keys=['count', 'line'])
+            #     raise
 
             # Flag is set to true when line type is determined
             found = False
 
             # Check for standard chapter, section, subsection header definitions
             for key in headers:
-                if sline.startswith('\\' + key) and not in_comment:
+                if sline.startswith('\\' + key):
                     # Mabye this is a naming issue.
                     anscestor = node.find_root(key)  # FIXME: should be ancestor?
                     RECORD_ACTION('HEADER(%s)' % key)
                     node = anscestor.append_part(key, line_num=count)
                     node.lines.append(line)
-                    nest_stack  # TODO multiline headers
+                    # nest_stack  # TODO multiline headers
                     found = True
                     break
 
             if not found:
                 # Check for begin / end blocks like document, equation, and itemize.
                 for key in TexNest.sections:
-                    if sline.startswith('\\begin{' + key + '}') and not in_comment:
+                    if sline.startswith('\\begin{' + key + '}'):
                         # Mabye this is a naming issue.
                         anscestor = node.find_root(key)  # FIXME: should be ancestor?
                         node = anscestor.append_part(key, line_num=count)
                         RECORD_ACTION('BEGIN_KEY(%s)' % key)
-                        RECORD_ACTION('ANCESTOR(%s)' % (anscestor.nice()))
-                        RECORD_ACTION('node(%s)' % (node.nice()))
+                        RECORD_ACTION('ANCESTOR(%s)' % (anscestor.type_str))
+                        # RECORD_ACTION('node(%s)' % (node.type_str))
                         node.lines.append(line)
 
-                        nest_stack.append(node)
-
-                        found = True
-                        break
+                        if key == 'comment':
+                            if debug:
+                                actstr = (', '.join(action))
+                                dbgjust = max(dbgjust, len(actstr) + 1)
+                                actstr2 = ut.highlight_text(actstr.ljust(dbgjust), 'yellow')
+                                #print(repr(node.parent) + '--' + repr(node))
+                                print(actstr2 + ' %3d ' % (count,) + repr(line))
+                            # Hacked together subparser for comments only
+                            while True:
+                                action = []
+                                RECORD_ACTION = action.append
+                                count, line = buff_stack.pop()
+                                sline = line.strip()
+                                if sline.startswith('\\end{comment}'):
+                                    anscestor = node.get_ancestor([key])
+                                    RECORD_ACTION('END_KEY(%s)' % key)
+                                    anscestor.footer.append(line)
+                                    parent_node = anscestor.parent
+                                    break
+                                else:
+                                    subtype = 'par'
+                                    if node.type_ != 'lines':
+                                        RECORD_ACTION('start_comment')
+                                        node = node.append_part('lines', subtype=subtype, line_num=count)
+                                    else:
+                                        RECORD_ACTION('in_comment')
+                                        node.lines.append(line)
+                                if debug:
+                                    actstr = (', '.join(action))
+                                    dbgjust = max(dbgjust, len(actstr) + 1)
+                                    actstr2 = ut.highlight_text(actstr.ljust(dbgjust), 'yellow')
+                                    #print(repr(node.parent) + '--' + repr(node))
+                                    print(actstr2 + ' %3d ' % (count,) + repr(line))
+                            continue
+                        else:
+                            # nest_stack.append(node)
+                            found = True
+                            break
 
                     if sline.startswith('\\end{' + key + '}'):
-                        if in_comment and key != 'comment':
-                            break
+                        # if in_comment and key != 'comment':
+                        #     break
                         anscestor = node.get_ancestor([key])
                         RECORD_ACTION('END_KEY(%s)' % key)
                         anscestor.footer.append(line)
@@ -953,21 +990,28 @@ class _Parser(object):
                                 'unexpected end of environment ' + str(
                                     (repr(node), sline, count))
                             )
-                        except AssertionError:
-                            print('Error')
-                            print('Perhaps the TOC heirarchy does not cover this case?')
-                            print('Does %r have defined anscestors?' % key)
-                            print('-- Outline -----')
-                            root.print_outline(hack_figdef=False)
-                            print('-------')
-                            print('Error')
-                            print('node = %r' % (node,))
-                            print('anscestor = %r' % (anscestor,))
-                            print('parent_node = %r' % (parent_node,))
-                            print('count = %r' % (count,))
-                            print('sline = %r' % (sline,))
-                            import utool
-                            utool.embed()
+                        except AssertionError as ex:
+                            error_lines = []
+                            prerr = error_lines.append
+                            prerr('')
+                            prerr('-----')
+                            prerr('Error')
+                            prerr('-----')
+                            prerr(str(ex))
+                            prerr('Perhaps the TOC heirarchy does not cover this case?')
+                            prerr('Does %r have defined anscestors?' % key)
+                            prerr('Error')
+                            prerr('node = %r' % (node,))
+                            prerr('anscestor = %r' % (anscestor,))
+                            prerr('parent_node = %r' % (parent_node,))
+                            prerr('count = %r' % (count,))
+                            prerr('sline = %r' % (sline,))
+                            err_msg = '\n'.join(error_lines)
+                            # print(err_msg)
+                            # print('-- Outline -----')
+                            # root.print_outline(hack_figdef=False)
+                            print(err_msg)
+                            raise AssertionError(err_msg)
                             raise
                         node = parent_node
                         found = True
@@ -975,7 +1019,7 @@ class _Parser(object):
 
                 # Check if statement
                 if 1:
-                    if sline.startswith('\\if') and not in_comment:
+                    if sline.startswith('\\if'):
                         # Mabye this is a naming issue.
                         key = 'if'
                         condition_var = sline[slice(3, sline.find('{') if '{' in sline else None)]
@@ -987,7 +1031,7 @@ class _Parser(object):
                         node.lines.append(line)
                         found = True
 
-                    if sline.startswith('\\else') and not in_comment:
+                    if sline.startswith('\\else'):
                         # Mabye this is a naming issue.
                         key = 'else'
                         anscestor = node.get_ancestor(['if'])
@@ -997,7 +1041,7 @@ class _Parser(object):
                         node.lines.append(line)
                         found = True
 
-                    if sline == '\\fi' and not in_comment:
+                    if sline == '\\fi':
                         key = 'fi'
                         anscestor = node.get_ancestor(['if'])
                         condition_var = anscestor.subtype
@@ -1025,7 +1069,7 @@ class _Parser(object):
                                'SingleImageCommand', 'newcommand',
                                'renewcommand', 'devcomment', 'setcounter',
                                'bibliographystyle', 'bibliography' ]
-            if not found and not in_comment:
+            if not found:
                 texcmd_pat = ut.named_field('texcmd', RE_VARNAME)
                 regex = r'\s*\\' + texcmd_pat + '{'
                 match = re.match(regex, sline)
@@ -1043,7 +1087,7 @@ class _Parser(object):
                         if curlycount == 0:
                             # HACK
                             RECORD_ACTION('BEGIN_X{%s}' % texmcd)
-                            RECORD_ACTION('CURRENT NODE: %r' % (node,))
+                            # RECORD_ACTION('CURRENT NODE: %r' % (node,))
                             if texmcd in ['input', 'include'] and root._config['includeon']:
                                 # Read and parse input
                                 fname = line.replace('\\' + texmcd + '{', '').replace('}', '').strip()
@@ -1207,12 +1251,16 @@ class LatexDocPart(_Reformater, _Parser, TexNest, ut.NiceRepr):
                 for node in child.iter_nodes(invalid_types=invalid_types):
                     yield node
 
-    def __nice__(self):
+    @property
+    def type_str(self):
         type_str = self.type_
         if self.subtype is not None:
             type_str += '.' + self.subtype
+        return type_str
+
+    def __nice__(self):
         #return '(%s -- %d) L%s' % (type_str, len(self.lines), self.level)
-        return '(%s -- %d -- %d)' % (type_str, len(self.lines),
+        return '(%s -- %d -- %d)' % (self.type_str, len(self.lines),
                                      len(self.children))
 
     def nice(self):

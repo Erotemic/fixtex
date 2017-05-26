@@ -573,7 +573,7 @@ def fix_sentences():
     fixtex --fixsent
     """
     text = ut.read_from('main.tex')
-    root = latex_parser.LatexDocPart.parse_text(text, debug=0)
+    root = latex_parser.LatexDocPart.parse_text(text, debug=None)
     document = root.find_descendant_type('document')
     chapters = list(document.find_descendant_types('chapter'))
 
@@ -1108,7 +1108,7 @@ def main():
 
         for fpath in fpaths:
             text = ut.readfrom(fpath)
-            root = latex_parser.LatexDocPart.parse_text(text, debug=0)
+            root = latex_parser.LatexDocPart.parse_text(text, debug=None)
 
             if ut.get_argflag('--fixcref'):
                 root.find(' \\\\cref')
@@ -1117,7 +1117,7 @@ def main():
             #print(root.children)
             #root.children = root.children[0:5]
             #print('Parsed Str Short')
-            new_text = '\n'.join(root.reformat_blocks(debug=0))
+            new_text = '\n'.join(root.reformat_blocks(debug=None))
             # remove trailing spaces
             new_text = re.sub(' *$', '', new_text, flags=re.MULTILINE)
             # remove double newlines
@@ -1155,10 +1155,10 @@ def main():
 
         for fpath in fpaths:
             text = ut.readfrom(fpath)
-            root = latex_parser.LatexDocPart.parse_text(text, debug=0)
+            root = latex_parser.LatexDocPart.parse_text(text, debug=None)
 
             # HACK
-            new_text = '\n'.join(root.reformat_blocks(debug=0))
+            new_text = '\n'.join(root.reformat_blocks(debug=None))
             # remove trailing spaces
             new_text = re.sub(' *$', '', new_text, flags=re.MULTILINE)
             # remove double newlines
@@ -1175,8 +1175,8 @@ def main():
                 root = root.find_descendant_type('section', pat=sectionpat)
                 print('root = %r' % (root,))
                 if root is None:
-                    import utool
-                    utool.embed()
+                    # import utool
+                    # utool.embed()
                     raise Exception('section %r does not exist' % (sectionpat))
             #print(root.get_debug_tree_text())
 
