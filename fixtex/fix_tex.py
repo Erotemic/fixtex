@@ -1151,6 +1151,7 @@ def main():
         ./texfix.py --fpaths chapter4-application.tex --outline --asmarkdown --numlines=999 -w --ignoreinputstartswith=def,Crall,header,colordef,figdef
         """
         fpaths = testdata_fpaths()
+        print('fpaths = %r' % (fpaths,))
 
         for fpath in fpaths:
             text = ut.readfrom(fpath)

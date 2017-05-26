@@ -60,9 +60,9 @@ def hack_read_figdict():
         LatexDocPart.parse_fpath('figdef3.tex'),
         LatexDocPart.parse_fpath('figdef4.tex'),
         LatexDocPart.parse_fpath('figdef5.tex'),
-        LatexDocPart.parse_fpath('figdefexpt.tex'),
-        LatexDocPart.parse_fpath('figdefindiv.tex'),
-        LatexDocPart.parse_fpath('figdefdbinfo.tex'),
+        # LatexDocPart.parse_fpath('figdefexpt.tex'),
+        # LatexDocPart.parse_fpath('figdefindiv.tex'),
+        # LatexDocPart.parse_fpath('figdefdbinfo.tex'),
     ]
     # figdict = figdef1.parse_figure_captions()
     figdict = ut.dict_union(*[f.parse_figure_captions()[0] for f in fig_defs])
@@ -372,22 +372,23 @@ class _Reformater(object):
         block_parts += footer_blocks
         return block_parts
 
-    def summary_str(self, outline=False, highlight=False, depth=None):
+    def summary_str(self, outline=False, highlight=False, depth=None, hack_figdef=True):
         block_parts = self.summary_str_blocks(outline, depth=depth)
         summary = '\n'.join(block_parts)
 
         if outline:
             # Hack to deal with figures
             if self._config['includeon'] and self._config['asmarkdown']:
-                figdict = hack_read_figdict()
-                for key, val in figdict.items():
-                    figcomment = strip_latex_comments(val)
-                    figcomment = re.sub(r'\\caplbl{' + ut.named_field('inside', '.*?') + '}', '', figcomment)
-                    # figcomment = '*' + '\n'.join(ut.split_sentences2(figcomment)) + '*'
-                    figcomment = '\n'.join(ut.split_sentences2(figcomment))
-                    figstr = '![`%s`](%s.jpg)' % (key, key) + '\n' + figcomment
-                    # figstr = '![%s](figures1/%s.jpg)' % (figcomment, key)
-                    summary = summary.replace('\\' + key + '{}', figstr)
+                if hack_figdef:
+                    figdict = hack_read_figdict()
+                    for key, val in figdict.items():
+                        figcomment = strip_latex_comments(val)
+                        figcomment = re.sub(r'\\caplbl{' + ut.named_field('inside', '.*?') + '}', '', figcomment)
+                        # figcomment = '*' + '\n'.join(ut.split_sentences2(figcomment)) + '*'
+                        figcomment = '\n'.join(ut.split_sentences2(figcomment))
+                        figstr = '![`%s`](%s.jpg)' % (key, key) + '\n' + figcomment
+                        # figstr = '![%s](figures1/%s.jpg)' % (figcomment, key)
+                        summary = summary.replace('\\' + key + '{}', figstr)
             if self._config['asmarkdown']:
                 summary = re.sub(r'\\rpipe{}', r'=>', summary)
                 summary = re.sub(r'\\rarrow{}', r'->', summary)
@@ -465,10 +466,31 @@ class _Reformater(object):
             # summary = re.sub(r'\\glossterm{', r'\\textbf{', summary)
             summary = re.sub(r'glossterm', r'textbf', summary)
             summary = re.sub(r'\\OnTheOrderOf{' + ut.named_field('inside', '.*?') + '}', '~10^{' + ut.bref_field('inside') + '}', summary)
-            summary = re.sub(r'~\\cite{' + ut.named_field('inside', '.*?') + '}', ' ![cite](' + ut.bref_field('inside') + ')', summary)
-            summary = re.sub(r'~\\cite\[.*?\]{' + ut.named_field('inside', '.*?') + '}', ' ![cite][' + ut.bref_field('inside') + ']', summary)
+
+            ref = ut.named_field
+            bref = ut.bref_field
+
+            SHORT_REF = ut.get_argflag('--shortcite')
+
+            if SHORT_REF:
+                summary = re.sub(
+                    r'~\\cite(\[.*?\])?{' + ref('inside', '.*?') + '}',
+                    ' (cite)',
+                    summary)
+            else:
+                summary = re.sub(
+                    r'~\\cite(\[.*?\])?{' + ref('inside', '.*?') + '}',
+                    ' ![cite](' + bref('inside') + ')',
+                    summary)
+            # summary = re.sub(
+            #     r'~\\cite\[.*?\]{' + ref('inside', '.*?') + '}',
+            #     ' ![cite][' + bref('inside') + ']',
+            #     summary)
             # summary = re.sub(r'~\\cite{' + ut.named_field('inside', '.*?') + '}', '', summary)
             # summary = re.sub(r'~\\cite\[.*?\]{' + ut.named_field('inside', '.*?') + '}', '', summary)
+
+            counter = ut.ddict(dict)
+
             def parse_cref(match):
                 if match.re.pattern.startswith('~'):
                     pref = ' '
@@ -477,8 +499,22 @@ class _Reformater(object):
                 inside = match.groupdict()['inside']
                 parts = inside.split(',')
                 type_ = parts[0][0:parts[0].find(':')]
+                if SHORT_REF:
+                    parts2 = []
+                    for p in parts:
+                        t = p[0:p.find(':')]
+                        c = counter[t]
+                        if p not in c:
+                            # c[p] = str(len(c) + 1)
+                            c[p] = str(len(c) + 1)
+                        parts2.append(c[p])
+                    parts = parts2
+
                 # phrase = '[' + ut.conj_phrase(parts, 'and') + ']()'
-                phrase = ut.conj_phrase(['[`' + p + '`]()' for p in parts], 'and')
+                if SHORT_REF:
+                    phrase = ut.conj_phrase(parts, 'and')
+                else:
+                    phrase = ut.conj_phrase(['[`' + p + '`]()' for p in parts], 'and')
                 # phrase = '[' + ','.join(parts) + ']()'
                 if type_ == 'fig':
                     return pref + 'Figure ' + phrase
@@ -492,22 +528,25 @@ class _Reformater(object):
                     return pref + 'Equation ' + phrase
                 elif type_ == 'tbl':
                     return pref + 'Table  ' + phrase
+                elif type_ == 'app':
+                    return pref + 'Appendix ' + phrase
                 elif type_ == 'sub':
                     return pref + phrase
                 elif type_ == '#':
                     return pref + phrase
                 else:
-                    raise Exception(type_ + ' groupdict=' + str(match.groupdict()))
-            summary = re.sub(r'~\\[Cc]ref{' + ut.named_field('inside', '.*?') + '}', parse_cref, summary)
-            summary = re.sub(r'\\Cref{' + ut.named_field('inside', '.*?') + '}', parse_cref, summary)
+                    raise Exception('Unknown reference type: ' + type_ +
+                                    ' groupdict=' + str(match.groupdict()))
+            summary = re.sub(r'~\\[Cc]ref{' + ref('inside', '.*?') + '}', parse_cref, summary)
+            summary = re.sub(r'\\[Cc]ref{' + ref('inside', '.*?') + '}', parse_cref, summary)
 
-            summary = re.sub(r'\\emph{' + ut.named_field('inside', '.*?') + '}', '*' + ut.bref_field('inside') + '*', summary)
-            summary = re.sub(r'\\textbf{' + ut.named_field('inside', '.*?') + '}', '**' + ut.bref_field('inside') + '**', summary)
-            summary = re.sub(r'\$\\tt{' + ut.named_field('inside', '[A-Z0-9a-z_]*?') + '}\$', '*' + ut.bref_field('inside') + '*', summary)
-            # summary = re.sub(r'{\\tt{' + ut.named_field('inside', '.*?') + '}}', '*' + ut.bref_field('inside') + '*', summary)
-            summary = re.sub(r'{\\tt{' + ut.named_field('inside', '.*?') + '}}', '`' + ut.bref_field('inside') + '`', summary)
+            summary = re.sub(r'\\emph{' + ref('inside', '.*?') + '}', '*' + bref('inside') + '*', summary)
+            summary = re.sub(r'\\textbf{' + ref('inside', '.*?') + '}', '**' + bref('inside') + '**', summary)
+            summary = re.sub(r'\$\\tt{' + ref('inside', '[A-Z0-9a-z_]*?') + '}\$', '*' + bref('inside') + '*', summary)
+            # summary = re.sub(r'{\\tt{' + ref('inside', '.*?') + '}}', '*' + bref('inside') + '*', summary)
+            summary = re.sub(r'{\\tt{' + ref('inside', '.*?') + '}}', '`' + bref('inside') + '`', summary)
             summary = re.sub('\n\n(\n| )*', '\n\n', summary)
-            summary = re.sub(ut.positive_lookbehind('\s') + ut.named_field('inside', '[a-zA-Z]+') + '{}', ut.bref_field('inside'), summary)
+            summary = re.sub(ut.positive_lookbehind('\s') + ref('inside', '[a-zA-Z]+') + '{}', bref('inside'), summary)
             summary = re.sub( ut.negative_lookbehind('`') + '``' + ut.negative_lookahead('`'), '"', summary)
             summary = re.sub('\'\'', '"', summary)
 
@@ -568,7 +607,7 @@ class _Reformater(object):
         """
         Reads global and static newcommand definitions in def and CrallDef
         """
-        def_node = LatexDocPart.parse_fpath('def.tex')
+        def_node = LatexDocPart.parse_fpath('def.tex', debug=False)
         defmap = def_node.parse_newcommands()
         cmd_map = defmap[0]
         cmd_map1 = defmap[1]
@@ -582,6 +621,7 @@ class _Reformater(object):
         extras = {
             '\\ie': 'i.e.',
             '\\wrt': 'w.r.t.',
+            '\\FloatBarrier': '',
         }
 
         for k, v in extras.items():
@@ -706,7 +746,9 @@ class TexNest(object):
     # HACK CUSTOM newlist commands
     listables += ['enumin', 'enumln', 'itemln', 'itemin']
 
-    containers = toc_heirarchy + ['paragraph', 'item', 'if', 'else']
+    containers = toc_heirarchy + ['paragraph', 'item', 'if', 'else'] + [
+        'newcommand', 'table'
+    ]
 
     # This defines what is allowed to be nested in what
     ancestor_lookup = {
@@ -720,6 +762,8 @@ class TexNest(object):
         'equation'      : toc_heirarchy + ['paragraph', 'item'],
         'comment'       : toc_heirarchy + ['paragraph', 'item'],
         'table'         : ['renewcommand', 'newcommand'] + [toc_heirarchy],
+        'input'         : ['table', 'newcommand', 'root'],
+        'tabular'       : ['table'],
         'if'            : ['if'] + toc_heirarchy + ['paragraph', 'item'],
         'fi'            : 'if',
         'else'          : 'if',
@@ -820,7 +864,8 @@ class _Parser(object):
             ./texfix.py --reformat --fpaths main.tex --debug-latex --includeon=False
         """
 
-        debug = ut.get_argflag('--debug-latex') or debug
+        if debug is None:
+            debug = ut.get_argflag('--debug-latex')
         root = cls('root', subtype=name)
         node = root
 
@@ -904,11 +949,16 @@ class _Parser(object):
                         #RECORD_ACTION('ANCESTOR(%s)' % (anscestor.nice()))
                         #RECORD_ACTION('PARENT(%s)' % (parent_node.nice()))
                         try:
-                            assert parent_node is not None, str((repr(node), sline, count))
+                            assert parent_node is not None, (
+                                'unexpected end of environment ' + str(
+                                    (repr(node), sline, count))
+                            )
                         except AssertionError:
                             print('Error')
+                            print('Perhaps the TOC heirarchy does not cover this case?')
+                            print('Does %r have defined anscestors?' % key)
                             print('-- Outline -----')
-                            root.print_outline()
+                            root.print_outline(hack_figdef=False)
                             print('-------')
                             print('Error')
                             print('node = %r' % (node,))
@@ -916,6 +966,8 @@ class _Parser(object):
                             print('parent_node = %r' % (parent_node,))
                             print('count = %r' % (count,))
                             print('sline = %r' % (sline,))
+                            import utool
+                            utool.embed()
                             raise
                         node = parent_node
                         found = True
@@ -991,11 +1043,15 @@ class _Parser(object):
                         if curlycount == 0:
                             # HACK
                             RECORD_ACTION('BEGIN_X{%s}' % texmcd)
+                            RECORD_ACTION('CURRENT NODE: %r' % (node,))
                             if texmcd in ['input', 'include'] and root._config['includeon']:
                                 # Read and parse input
                                 fname = line.replace('\\' + texmcd + '{', '').replace('}', '').strip()
                                 fname = ut.ensure_ext(fname, '.tex')
                                 flag = True
+                                # HACK
+                                if fname.startswith('figuresY'):
+                                    flag = False
                                 for tmp in ignoreinputstartswith:
                                     if fname.startswith(tmp):
                                         flag = False
@@ -1196,8 +1252,8 @@ class LatexDocPart(_Reformater, _Parser, TexNest, ut.NiceRepr):
         lines += self.footer
         return '\n'.join(lines)
 
-    def print_outline(self, depth=None):
-        summary = self.summary_str(outline=True, highlight=True, depth=depth)
+    def print_outline(self, depth=None, hack_figdef=True):
+        summary = self.summary_str(outline=True, highlight=True, depth=depth, hack_figdef=hack_figdef)
         print(summary)
 
     def print_summary(self, depth=None):
@@ -1427,6 +1483,8 @@ class LatexDocPart(_Reformater, _Parser, TexNest, ut.NiceRepr):
             figdict2['caption'][figname] = figcap
             fpaths = [ut.get_match_text(m) for m in re.finditer(imgpath_pattern, text)]
             figdict2['fpaths'][figname] = fpaths
+
+        # print(sorted(figdict2['caption'].keys()))
 
         return figdict, figdict2
 
