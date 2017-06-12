@@ -232,6 +232,8 @@ class _Reformater(object):
                     header_block = header_block.replace('\\item', '*')
                 elif self.type_ in ['equation']:
                     header_block = '\n$$'
+                elif self.type_ in ['figure']:
+                    header_block = '\n#### figure caption.'
                 elif self.type_ in ['pythoncode*']:
                     header_block = '\n```python'
                 else:
@@ -281,20 +283,20 @@ class _Reformater(object):
         # Skip certain node types
         child_nodes = self.children
         def is_skiptype(node):
-            skip_types_ = skip_types
-            skip_figures = self._config['asmarkdown']
-            skip_figures = False
-            if skip_figures:
-                # HACK FOR THESIS
-                hackfigtypes = ['mergecase', 'splitcase', 'popest',
-                                'ThreeSixty', 'PoseExample',
-                                'OcclusionAndDistractors',
-                                'ShadowAndIllumination',
-                                'OccurrenceCompliment', 'Quality', 'Age',
-                                'doubledepc']
-                skip_types_ += hackfigtypes
-                if node.type_.lower().endswith('figure'):
-                    return False
+            skip_types
+            # skip_figures = self._config['asmarkdown']
+            # skip_figures = False
+            # if skip_figures:
+            #     # HACK FOR THESIS
+            #     hackfigtypes = ['mergecase', 'splitcase', 'popest',
+            #                     'ThreeSixty', 'PoseExample',
+            #                     'OcclusionAndDistractors',
+            #                     'ShadowAndIllumination',
+            #                     'OccurrenceCompliment', 'Quality', 'Age',
+            #                     'doubledepc']
+            #     skip_types_ += hackfigtypes
+            #     if node.type_.lower().endswith('figure'):
+            #         return False
             return node.type_ not in skip_types
 
         skip_type_flags = [is_skiptype(x)  for x in child_nodes]
@@ -342,11 +344,32 @@ class _Reformater(object):
                     child_nodes.append(node)
 
         header_blocks = self._summary_headerblocks(outline=outline)
-        # Make child strings
+
         child_blocks = ut.flatten([child.summary_str_blocks(outline=outline, depth=depth)
                                    for child in child_nodes])
 
         footer_blocks = self._summary_footerblocks(outline=outline)
+
+        # Make child strings
+        if self.type_ == 'figure' and outline:
+            # child_blocks = ['this is a figure']
+            text = '\n'.join(child_blocks)
+
+            # match = re.search('\\\\caption\[[^\]]*\]{.*}(\n|\s)*\\label', text, flags=re.DOTALL)
+            ref = ut.named_field
+            match = re.search('\\\\caption\[.*\]{' + ref('caption', '.*?') +
+                              '}(\n|\s)*\\\\label', text, flags=re.DOTALL)
+            figcap = (match.groupdict()['caption'])
+            figcap = re.sub('\\\\caplbl{[^}]*}', '', figcap).strip()
+            if match is None:
+                if ut.VERBOSE:
+                    child_blocks = [
+                        ('WARNING match = %r\n' % (match,))
+                        ('NONE DEF\n')
+                        (str(node))
+                    ]
+            else:
+                child_blocks = [figcap]
 
         if self.type_ == 'equation' and outline:
             if self._config['asmarkdown']:
@@ -762,7 +785,10 @@ class TexNest(object):
         'equation'      : toc_heirarchy + ['paragraph', 'item'],
         'comment'       : toc_heirarchy + ['paragraph', 'item'],
         'table'         : ['renewcommand', 'newcommand'] + [toc_heirarchy],
-        'input'         : ['table', 'newcommand', 'root'],
+        'figure'        : ['renewcommand', 'newcommand'] + [toc_heirarchy],
+        # 'subfigure'     : ['figure'],
+        # 'minted'        : ['figure'],
+        'input'         : ['root', 'newcommand', 'table'],
         'tabular'       : ['table'],
         'if'            : ['if'] + toc_heirarchy + ['paragraph', 'item'],
         'fi'            : 'if',
@@ -771,7 +797,10 @@ class TexNest(object):
     for listable in listables:
         ancestor_lookup[listable] = toc_heirarchy + ['item']
     ancestor_lookup['item'] = listables
+    float_envs = ['table', 'figure']
+    # , 'subfigure', 'minted']
     sections += listables
+    sections += float_envs
 
     rawformat_types = ['equation', 'comment', 'pythoncode*']
 
@@ -875,8 +904,8 @@ class _Parser(object):
 
         ignoreinputstartswith = ut.get_argval('--ignoreinputstartswith', type_=list, default=ignoreinputstartswith)
 
-        if name is not None and name.startswith('figdef'):
-            debug = False
+        # if name is not None and name.startswith('figdef'):
+        #     debug = False
 
         if debug:
             ut.colorprint(' --- PARSE LATEX --- ', 'yellow')

@@ -29,6 +29,17 @@ class BibTexCleaner(object):
             parts = self.entry['abstract'].split(' ')[0:7]
             self.entry['abstract'] = ' '.join(parts)
 
+    def fix_year(self):
+        if 'year' not in self.entry:
+            if 'date' in self.entry:
+                dateparts = self.entry['date'].split('-')
+                if len(dateparts) in {1, 2, 3} and len(dateparts[0]) == 4:
+                    year = dateparts[0]
+                else:
+                    import utool
+                    utool.embed()
+                self.entry['year'] = year
+
     def shorten_keys(self):
         # Remove Keys
         detail_level = {
@@ -52,6 +63,8 @@ class BibTexCleaner(object):
 
     def _confkey(self):
         valid_keys = {'journal', 'booktitle'}
+        if 'journaltitle' in self.entry:
+            return 'journaltitle'
         confkeys = sorted(set(self.entry.keys()).intersection(valid_keys))
         if len(confkeys) == 1:
             confkey = confkeys[0]
@@ -125,23 +138,28 @@ class BibTexCleaner(object):
             return None
         new_confval = None
         candidates = []
-        # Check if the conference/journal name matches any standard patterns
-        CONFERENCE_TITLE_MAPS = constants_tex_fixes.CONFERENCE_TITLE_MAPS
-        for conf_title, patterns in CONFERENCE_TITLE_MAPS.items():
-            match_exact = conf_title == old_confval
-            match_regex = any(
-                re.search(pattern, old_confval, flags=re.IGNORECASE)
-                for pattern in patterns
-            )
-            if (match_exact or match_regex):
-                new_confval = conf_title
-                candidates.append(new_confval)
 
+        USE_FULL = True
+        # Check if the conference/journal name matches any standard patterns
+        # CONFERENCE_TITLE_MAPS = constants_tex_fixes.CONFERENCE_TITLE_MAPS
+        # for conf_title, patterns in CONFERENCE_TITLE_MAPS.items():
+        for conf in constants_tex_fixes.CONFERENCES:
+            if conf.matches(old_confval):
+                if USE_FULL:
+                    new_confval = conf.full()
+                    if conf._full is None:
+                        print(conf._abbrev)
+                else:
+                    new_confval = conf.abbrev()
+                candidates.append(new_confval)
         if len(candidates) == 0:
             new_confval = None
         elif len(candidates) == 1:
             new_confval = candidates[0]
         else:
+            print('DOUBLE MATCH:')
+            print('old_confval = %r' % (old_confval,))
+            print('candidates = %r' % (candidates,))
             raise RuntimeError('double match')
 
         if old_confval.startswith('arXiv'):
@@ -157,7 +175,6 @@ class BibTexCleaner(object):
 
             if new_confval is None:
                 # Maybe the pattern is missing?
-                # unknown_confkeys.append(old_confval)
                 return old_confval
             else:
                 # Overwrite the conference name
@@ -333,8 +350,14 @@ def main(bib_fpath=None):
     from fixtex.fix_tex import find_used_citations, testdata_fpaths
 
     if exists('custom_extra.bib'):
-        dirty_text += '\n'
-        dirty_text += ut.read_from('custom_extra.bib')
+        extra_parser = bparser.BibTexParser(ignore_nonstandard_types=False)
+        print('Parsing extra bibtex file')
+        extra_text = ut.read_from('custom_extra.bib')
+        extra_database = extra_parser.parse(extra_text, partial=False)
+        print('Finished parsing extra')
+        extra_dict = extra_database.get_entry_dict()
+    else:
+        extra_dict = None
 
     #udata = dirty_text.decode("utf-8")
     #dirty_text = udata.encode("ascii", "ignore")
@@ -408,6 +431,9 @@ def main(bib_fpath=None):
 
     known_keys = list(bibtex_dict.keys())
     missing_keys = set(key_list) - set(known_keys)
+    if extra_dict is not None:
+        missing_keys.difference_update(set(extra_dict.keys()))
+
     if missing_keys:
         print('The library is missing keys found in tex files %s' % (
             ut.repr4(missing_keys),))
@@ -435,7 +461,7 @@ def main(bib_fpath=None):
     just = max([0] + ut.lmap(len, missing_keys))
     missing_fpaths = [inverse[key] for key in missing_keys]
     for fpath in sorted(set(ut.flatten(missing_fpaths))):
-        ut.fix_embed_globals()
+        # ut.fix_embed_globals()
         subkeys = [k for k in missing_keys if fpath in inverse[k]]
         print('')
         ut.cprint('--- Missing Keys ---', 'blue')
@@ -448,6 +474,12 @@ def main(bib_fpath=None):
             )
 
     # for key in list(bibtex_dict.keys()):
+
+    if extra_dict is not None:
+        # Extra database takes precidence over regular
+        key_list = list(ut.unique(key_list + list(extra_dict.keys())))
+        for k, v in extra_dict.items():
+            bibtex_dict[k] = v
 
     for key in key_list:
         try:
@@ -466,6 +498,7 @@ def main(bib_fpath=None):
         self.clip_abstract()
         self.shorten_keys()
         self.fix_authors()
+        self.fix_year()
         old_confval = self.fix_confkey()
         if old_confval:
             unknown_confkeys.append(old_confval)

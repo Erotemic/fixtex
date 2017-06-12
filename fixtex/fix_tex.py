@@ -385,10 +385,10 @@ def fix_conference_title_names(clean_text, key_list=None):
             if old_confval.startswith('arXiv'):
                 continue
 
-            for conf_title, patterns in constants_tex_fixes.CONFERENCE_TITLE_MAPS.items():
-                if (conf_title == old_confval or
-                      any([re.search(pattern, old_confval, flags=re.IGNORECASE)
-                           for pattern in patterns])):
+            # for conf_title, patterns in constants_tex_fixes.CONFERENCE_TITLE_MAPS.items():
+            for conf in constants_tex_fixes.CONFERENCES:
+                if conf.matches(old_confval):
+                    conf_title = conf.abbrev()
                     if debug:
                         print('old_confval = %r' % (old_confval,))
                         print('conf_title = %r' % (conf_title,))

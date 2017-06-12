@@ -92,200 +92,246 @@ JOURNAL_LIST = [
     'Nature Methods',
 ]
 
-CONFERENCE_TITLE_MAPS = {
-    'Nature Methods': [
-        'Nature Methods',
-    ],
 
-    'CVPR': [
+class Conf(object):
+    def __init__(self, abbrev, full=None, patterns=[]):
+        self._abbrev = abbrev
+        self._full = full
+        self._patterns = patterns
+
+    def abbrev(self):
+        if self._abbrev is None:
+            return self._full
+        return self._abbrev
+
+    def full(self):
+        if self._full is None:
+            return self._abbrev
+        return self._full
+
+    def matches(self, title):
+        if title == self._abbrev:
+            return True
+        if title == self._full:
+            return True
+        else:
+            return any(re.search(pat, title, flags=re.IGNORECASE)
+                       for pat in self._patterns)
+
+
+CONFERENCES = [
+    Conf(None, 'Nature Methods'),
+    Conf('CVPR', 'Computer Vision and Pattern Recognition', [
         regex_word('CVPR'),
         '^Computer Vision and Pattern Recognition',
         r'Computer Vision, \d* IEEE \d*th International Conference on',
         'Computer Vision, 2003. Proceedings. Ninth IEEE International Conference on',
         'Proceedings of the IEEE Conference on Computer Vision and Pattern Recognition',
-    ],
+    ]),
 
-    'IJCV': [
+    Conf('IJCV', 'International Journal of Computer Vision', [
         regex_word('IJCV'),
         'International Journal of Computer Vision',
-    ],
+    ]),
 
-    'ICCV': [
+    Conf('ICCV', 'International Conference on Computer Vision', [
         regex_word('ICCV'),
         'International Conference on Computer Vision',
-    ],
+    ]),
 
-    'TPAMI': [
+    Conf('TPAMI', 'Transactions on Pattern Analysis and Machine Intelligence', [
         regex_word('TPAMI'),
         'Transactions on Pattern Analysis and Machine Intelligence',
         'Pattern Analysis and Machine Intelligence, IEEE Transactions on',
-    ],
+    ]),
 
-    'ECCV': [
+    Conf('ECCV', 'European Conference on Computer Vision', [
         regex_word('ECCV'),
         'Computer VisionECCV',
         'European Conference on Computer Vision',
-    ],
+    ]),
 
-    'NIPS': [
+    Conf('NIPS', 'Advances in Neural Information Processing Systems', [
         regex_word('NIPS'),
         'Advances in Neural Information Processing Systems',
-    ],
+    ]),
 
-    'Science': [
-    ],
+    Conf(None, 'Science', [
+    ]),
 
-    'Nature': [
-    ],
+    Conf(None, 'Nature', [
+    ]),
 
-    'ICML': [
+    Conf('ICML', 'International Conference on Machine Learning', [
         regex_word('ICML'),
         '{International} {Conference} on {Machine} {Learning}',
-    ],
+    ]),
 
-    'WACV': [
+    Conf('WACV', 'Winter Applications of Computer Vision', [
         regex_word('WACV'),
-    ],
+    ]),
 
-    'WACVW': [
+    Conf('WACVW', 'Winter Applications of Computer Vision Workshops', [
         regex_word('WACVW'),
         'Winter Applications of Computer Vision Workshops',
-    ],
+    ]),
 
-    'CVIU': [],
+    Conf('CVIU', None, []),
 
-    'ICPR': [
+    Conf('ICPR', 'International Conference on Pattern Recognition', [
         regex_word('ICPR'),
-    ],
+    ]),
 
-    'BMVC': [
+    Conf('BMVC', 'British Machine Vision Conference', [
         regex_word('BMVC'),
         'BMVC92',
-    ],
+    ]),
 
-    'NN': [
+    Conf('NN', 'Transactions on Neural Networks', [
         'Transactions on Neural Networks',
         '^Neural Networks$',
-    ],
+    ]),
 
-    'TIP': [
+    Conf('TIP', 'Transactions on Image Processing', [
         'Transactions on Image Processing',
-    ],
+    ]),
 
-    'ICIP': [],
+    Conf('ICIP', None, []),
 
-    'BMVA': [
+    Conf('BMVA', 'British Machine Vision Association', [
         'Alvey vision conference',
-    ],
+    ]),
 
-    'IT': [
+    Conf('IT', 'Transactions on Information Theory', [
         'Transactions on Information Theory',
-    ],
+    ]),
 
-    'ACCV': [
+    Conf('ACCV', None, [
         regex_word('ACCV'),
-    ],
-    'CoRR': [],
-    'AMIDA': [],
+    ]),
+    Conf('CoRR', None, []),
+    Conf('AMIDA', None, []),
 
-    'IJCNN': ['International Joint Conference on Neural Networks'],
+    Conf('IJCNN', 'International Joint Conference on Neural Networks', ['International Joint Conference on Neural Networks']),
 
-    'AAAI': [],
+    Conf('AAAI', None, []),
 
-    'JMLR': [
-        'Journal of Machine Learning Research',
+    Conf('JMLR', 'Journal of Machine Learning Research', [
         re.escape('J. Mach. Learn. Res.'),
-    ],
+    ]),
 
-    'SP': [
+    Conf('SP', 'Transactions on Signal Processing', [
         'Transactions on Signal Processing',
-    ],
+    ]),
 
-    'CSUR': ['ACM Comput. Surv.', 'ACM Computing Surveys'],
+    Conf('CSUR', 'ACM Computing Surveys', ['ACM Comput. Surv.', 'ACM Computing Surveys']),
 
-    'ICASSP': [
-        'International Conference on Acoustics, Speech and Signal Processing',
+    Conf('ICASSP', 'International Conference on Acoustics, Speech and Signal Processing', [
         regex_word('ICASSP'),
-    ],
+    ]),
 
-    'STOC': [
+    Conf('STOC', 'ACM symposium on Theory of computing', [
         'ACM symposium on Theory of computing',
-    ],
+    ]),
 
-    'Pattern Recognition': [
+    Conf(None, 'Pattern Recognition', [
         '^Pattern Recognition$',
-    ],
+    ]),
 
-    'Pattern Recognition Letters': [
+    Conf(None, 'Pattern Recognition Letters', [
         '^Pattern Recognition Letters$',
-    ],
+    ]),
 
-    'VISAPP': [
+    Conf('VISAPP', 'International Conference on Computer Vision Theory and Applications', [
         'International Conference on Computer Vision Theory and Applications',
-    ],
+    ]),
 
-    'ICOMIV': [
+    Conf('ICOMIV', 'ACM International Conference on Multimedia', [
         'ACM International Conference on Multimedia',
-    ],
+    ]),
 
-    'CiSE': [
+    Conf('CiSE', 'Computing in Science Engineering', [
         'Computing in Science Engineering',
-    ],
+    ]),
 
-    'Journal of Cognitive Neuroscience': [],
+    Conf(None, 'Journal of Cognitive Neuroscience', []),
 
-    'IJCPR': [
+    Conf('IJCPR', 'International Joint Conference on Pattern Recognition', [
         'International Joint Conference on Pattern Recognition',
-    ],
+    ]),
 
-    'Image and Vision Computing': [
+    Conf(None, 'Image and Vision Computing', [
         '^Image and Vision Computing$',
-    ],
+    ]),
 
-    'PAA': ['Pattern Analysis and Applications'],
+    Conf('PAA', 'Pattern Analysis and Applications', ['Pattern Analysis and Applications']),
 
-    'Siggraph': [
+    Conf('Siggraph', None, [
         'ACM Siggraph Computer Graphics',
-    ],
+    ]),
 
-    'ICLR': ['International Conference on Learning Representations'],
+    Conf('ICLR', 'International Conference on Learning Representations', []),
 
-    'Oecologia': [],
+    Conf(None, 'Oecologia', []),
 
-    'IJDAR': ['International Conference on Document Analysis and Recognition'],
+    Conf(None, 'Machine Learning', []),
 
-    'CIVR': ['International Conference on Image and Video Retrieval'],
+    Conf(None, 'Journal of Algorithms', []),
 
-    'SoCG': ['Twentieth Annual Symposium on Computational Geometry'],
+    Conf('PLOS ONE', 'PLOS ONE', ['PLoS ONE']),
 
-    'Advances in the Study of Behavior': [],
+    Conf('TOMS', 'ACM Transactions on Mathematical Software', ['ACM Transactions on Mathematical Software']),
 
-    'TOG': [r'\bACM TOG\b'],
+    Conf('IJDAR', 'International Conference on Document Analysis and Recognition', ['International Conference on Document Analysis and Recognition']),
 
-    'PCM': ['Multimedia Information Processing'],
+    Conf('CIVR', 'International Conference on Image and Video Retrieval', ['International Conference on Image and Video Retrieval']),
 
-    'The Computer Journal': [],
+    Conf('SoCG', 'Symposium on Computational Geometry', ['Twentieth Annual Symposium on Computational Geometry']),
 
-    'Biometrics': [],
+    Conf(None, 'Advances in the Study of Behavior', []),
 
-    'Python in Science': ['Python in Science'],
+    Conf('TOG', 'ACM Transactions on Graphics', [r'\bACM TOG\b']),
 
-    'INRIA Research Report': [r'Rapport de recherche RR-[0-9]*, INRIA'],
+    Conf('PCM', None, ['Multimedia Information Processing']),
 
-    'Proceedings of the IEEE': [],
+    Conf(None, 'The Computer Journal', []),
 
-    'Foundations and Trends in Computer Graphics and Vision': [],
+    Conf(None, 'Biometrics', []),
 
-    'Foundations and Trends in Machine Learning': [u'Foundations and Trends® in Machine Learning'],
+    Conf('BTAS', 'Biometrics: Theory, Applications and Systems', [
+        r'Biometrics: Theory, Applications and Systems .*, 2013 IEEE Sixth International Conference on',
+    ]),
 
-    'Communications ACM': [],
+    Conf(None, 'Python in Science', ['Python in Science']),
 
-    'Biometrika': [],
+    Conf(None, 'INRIA Research Report', [r'Rapport de recherche RR-[0-9]*, INRIA']),
 
-    'ICDT': ['Database Theory — ICDT’99'],
+    Conf(None, 'Proceedings of the IEEE', []),
 
-    'EMMCVPR': [
+    Conf(None, 'Foundations and Trends in Computer Graphics and Vision', ['Foundations and Trends. in Computer Graphics and Vision']),
+
+    Conf('CVGIP', 'Graphical Models and Image Processing', ['Computer Vision, Graphics, and Image Processing']),
+
+    Conf(None, 'Foundations and Trends in Machine Learning', [u'Foundations and Trends® in Machine Learning']),
+
+    Conf(None, 'Wiley StatsRef: Statistics Reference Online', []),
+
+    Conf(None, 'Communications ACM', ['Commun\. ACM']),
+
+    Conf(None, 'Biometrika', []),
+    Conf(None, 'Algorithmica', []),
+
+    Conf(None, 'Bird Study', []),
+
+    Conf(None, 'SIAM Journal on Computing', []),
+    Conf(None, 'The Journal of Machine Learning Research', []),
+    Conf(None, 'Wildlife Monographs', []),
+    Conf(None, 'Journal of the Institution of Electrical Engineers', ['Journal of the Institution of Electrical Engineers']),
+
+    Conf('ICDT', 'Database Theory', ['Database Theory — ICDT’99']),
+
+    Conf('EMMCVPR', None, [
         regex_word('EMMCVPR'),
         'Energy Minimization Methods in Computer Vision and Pattern Recognition'
-    ],
-}
+    ]),
+]
