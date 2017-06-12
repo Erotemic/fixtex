@@ -47,8 +47,8 @@ class BibTexCleaner(object):
             'journal': 2,
             'conference': 1,
         }
-        # FOR = 'thesis'
-        FOR = 'conference'
+        FOR = 'thesis'
+        # FOR = 'conference'
         level = detail_level[FOR]
         remove_keys = []
         if level <= 3:
@@ -62,9 +62,9 @@ class BibTexCleaner(object):
         self.entry = ut.delete_dict_keys(self.entry, remove_keys)
 
     def _confkey(self):
-        valid_keys = {'journal', 'booktitle'}
-        if 'journaltitle' in self.entry:
-            return 'journaltitle'
+        valid_keys = {'journal', 'booktitle', 'journaltitle'}
+        # if 'journaltitle' in self.entry:
+        #     return 'journaltitle'
         confkeys = sorted(set(self.entry.keys()).intersection(valid_keys))
         if len(confkeys) == 1:
             confkey = confkeys[0]
@@ -169,6 +169,13 @@ class BibTexCleaner(object):
 
     def fix_confkey(self):
         confkey = self._confkey()
+
+        if confkey == 'journaltitle':
+            # Fix confkey for journals
+            self.entry['journal'] = self.entry['journaltitle']
+            del self.entry['journaltitle']
+            confkey = 'journal'
+
         if confkey is not None:
             old_confval = self._confval()
             new_confval = self.standard_confval()
