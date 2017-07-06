@@ -367,7 +367,7 @@ class _Reformater(object):
         # match = re.search('\\\\caption\[[^\]]*\]{.*}(\n|\s)*\\label', text, flags=re.DOTALL)
         ref = ut.named_field
         try:
-            match = re.search('\\\\caption\[.*\]{' + ref('caption', '.*?') +
+            match = re.search('\\\\capt[ie][ox][nt]\[.*\]{' + ref('caption', '.*?') +
                               '}(\n|\s)*\\\\label', text, flags=re.DOTALL)
             figcap = (match.groupdict()['caption'])
         except Exception:
@@ -1525,54 +1525,17 @@ class LatexDocPart(_Reformater, _Parser, TexNest, ut.NiceRepr):
         # defs = self.find('.*', ('lines', 'def'))
         # Read definitions of figures to grab the captions
         def_list = self.find('.*', ('newcommand', None))
-        #def_list += self.find('.*', ('newcommand', None))
-        singleimg = self.find('.*', ('SingleImageCommand', None))
-        multiimg = self.find('.*', ('MultiImageCommandII', None))
         ref = ut.partial(ut.named_field)
-
-        between = '(\n|\s)*'
-        sep = '}{'
-        sep = between + '}' + between + '{' + between
 
         figdict = {}
         figdict2 = ut.defaultdict(dict)
 
-        pat = ''.join([
-            '\\\\MultiImageCommandII{', ref('cmdname', '.*?'), sep,
-            ref('width', '.*?'), sep, ref('caplbl', '.*?'), sep,
-            ref('caption', '.*?'), '}{',
-        ])
         imgpath_pattern = r'[/a-zA-Z_0-9\.]*?\.(png|jpg|jpeg)\b'
-        for node in multiimg:
-            text = str(node)
-            match = re.match(pat, text, flags=re.DOTALL)
-            figname = (match.groupdict()['cmdname'])
-            figcap = (match.groupdict()['caption'])
-            figdict[figname] = figcap
-            figdict2['caption'][figname] = figcap
-            fpaths = [ut.get_match_text(m) for m in re.finditer(imgpath_pattern, text)]
-            figdict2['fpaths'][figname] = fpaths
-
-        pat = ''.join([
-            '\\\\SingleImageCommand{', ref('cmdname', '.*?'), sep,
-            ref('width', '.*?'), sep, ref('caplbl', '.*?'), sep,
-            ref('caption', '.*?'), '}{',
-        ])
-        for node in singleimg:
-            text = str(node)
-            match = re.match(pat, text, flags=re.DOTALL)
-            figname = (match.groupdict()['cmdname'])
-            figcap = (match.groupdict()['caption'])
-            figdict[figname] = figcap
-            figdict2['caption'][figname] = figcap
-            fpaths = [ut.get_match_text(m) for m in re.finditer(imgpath_pattern, text)]
-            figdict2['fpaths'][figname] = fpaths
 
         for node in def_list:
             text = str(node)
-            # match = re.search('\\\\caption\[[^\]]*\]{.*}(\n|\s)*\\label', text, flags=re.DOTALL)
             match = re.search('\\\\newcommand{\\\\' + ref('cmdname', '.*?') +
-                              '}.*\\\\caption\[.*\]{' + ref('caption', '.*?') +
+                              '}.*\\\\capt[ie][ox][nt]\[.*\]{' + ref('caption', '.*?') +
                               '}(\n|\s)*\\\\label', text, flags=re.DOTALL)
             if match is None:
                 if ut.VERBOSE:
@@ -1586,8 +1549,6 @@ class LatexDocPart(_Reformater, _Parser, TexNest, ut.NiceRepr):
             figdict2['caption'][figname] = figcap
             fpaths = [ut.get_match_text(m) for m in re.finditer(imgpath_pattern, text)]
             figdict2['fpaths'][figname] = fpaths
-
-        # print(sorted(figdict2['caption'].keys()))
 
         return figdict, figdict2
 
