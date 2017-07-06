@@ -72,7 +72,6 @@ def hack_read_figdict():
 class _Reformater(object):
 
     _config = ut.argparse_dict({
-            'compress_consecutive': False,
             #'skip_subtypes': ['comment', 'def'],
             'skip_subtypes': ['comment', 'devmark'],
             'skip_types': ['comment', 'keywords', 'outline', 'devnewpage',
@@ -112,7 +111,7 @@ class _Reformater(object):
         container_type = self.get_ancestor(TexNest.toc_heirarchy).type_
         return container_type in fullformat_types
 
-    def _summary_headerblocks(self, outline=False):
+    def _summary_headerblocks(self, outline=False, numlines=None):
         """
         Create a new formatted headerblock for the node summary string
         """
@@ -120,7 +119,7 @@ class _Reformater(object):
         if len(self.lines) == 0:
             return []
         elif self.type_ == 'lines':
-            header_block = self.get_lines(outline)
+            header_block = self.get_lines(outline, numlines=numlines)
         else:
             header_block = self.get_header(outline)
         header_block = self._put_debug_type(header_block, outline)
@@ -130,11 +129,19 @@ class _Reformater(object):
     def is_header(self):
         return self.type_ in TexNest.toc_heirarchy
 
-    def get_lines(self, outline=False):
-        # Use ... to represent lines unless a full reformat is requested for anutline
+    def get_lines(self, outline=False, numlines=None, nolabel=None,
+                  asmarkdown=None):
+        if numlines is None:
+            numlines = self._config['numlines']
+        if nolabel is None:
+            nolabel = self._config['nolabel']
+        if asmarkdown is None:
+            asmarkdown = self._config['asmarkdown']
+
+        # Use ... to represent lines unless a full reformat is requested for outline
         if self.in_full_outline_section(outline):
             header_block = ut.unindent('\n'.join(self.reformat_blocks(stripcomments=False)))
-        elif self._config['numlines'] == 0:
+        elif numlines == 0:
             if self.type_ == 'lines' and self.parent.type_ in TexNest.listables:
                 header_block = ''
             else:
@@ -147,35 +154,44 @@ class _Reformater(object):
             if self.subtype == 'space':
                 header_block = ''
             else:
-                if self._config['asmarkdown']:
+                if asmarkdown:
                     header_block = '\n'.join(self._local_sentences())
                 else:
                     header_block = ut.unindent('\n'.join(self.reformat_blocks(stripcomments=False)))
 
-            if self._config['numlines'] >= 1 and self.subtype == 'par':
+            if numlines >= 1 and self.subtype == 'par':
                 if self.parent_type() in TexNest.rawformat_types:
                     #if self.parent.type_ == 'pythoncode*':
                     # hack to not do next hack for pythoncode
                     header_block = '\n'.join(self.lines)
                 else:
                     # hack to return the n sentences from every paragrpah
-                    pos = find_nth_pos(header_block, ['\\.',  ':\r'], self._config['numlines'])
+                    pos = find_nth_pos(header_block, ['\\.',  ':\r'], numlines)
                     header_block = header_block[:pos + 1]
 
         # only remove labels from ends of nonempty lines
-        if self._config['nolabel']:
+        if nolabel:
             pref = ut.positive_lookbehind('[^ ]')
             header_block = re.sub(pref + '\\\\label{.*$', '', header_block, flags=re.MULTILINE)
 
         header_block = ut.unindent(header_block)
-        if self._config['asmarkdown']:
+        if asmarkdown:
             pass
         else:
             header_block = ut.indent(header_block, ('    ' * self.level))
         # header_block = ut.indent(ut.unindent(header_block), ('    ' * self.level))
         return header_block
 
-    def get_header(self, outline=False):
+    def get_header(self, outline=False, nolabel=None, asmarkdown=None,
+                   max_width=None):
+
+        if max_width is None:
+            max_width = self._config['max_width']
+        if nolabel is None:
+            max_width = self._config['nolabel']
+        if asmarkdown is None:
+            max_width = self._config['asmarkdown']
+
         if outline:
             # Print introduction
             # allow_multiline_headers = True
@@ -189,7 +205,7 @@ class _Reformater(object):
             if allow_multiline_headers and len(self.lines) > 1:
                 # Header is multiline
                 header_block = '\n'.join(self.lines)
-                max_width = self._config['max_width']
+                max_width = max_width
                 header_block = ut.format_multi_paragraphs(header_block,
                                                           myprefix=True,
                                                           sentence_break=True,
@@ -204,13 +220,13 @@ class _Reformater(object):
             else:
                 header_block = self.lines[0]
 
-        if self._config['nolabel']:
+        if nolabel:
             # only remove labels from ends of nonempy lines
             pref = ut.positive_lookbehind('[^ ]')
             header_block = re.sub(pref + '\\\\label{.*$', '', header_block, flags=re.MULTILINE)
         header_block = ut.unindent(header_block)
 
-        if self._config['asmarkdown']:
+        if asmarkdown:
             try:
                 header_block = header_block.replace('\\%s{' % self.type_, '')
 
@@ -262,10 +278,7 @@ class _Reformater(object):
             footer_blocks = []
         return footer_blocks
 
-    def summary_str_blocks(self, outline=False, depth=None):
-        """
-        Recursive function that builds summary strings
-        """
+    def _summary_childblocks(self, outline=False, depth=None, numlines=None):
         if depth is not None:
             depth = depth - 1
             if depth < 0:
@@ -277,26 +290,10 @@ class _Reformater(object):
         else:
             skip_types = []
             skip_subtypes = []
-            #skip_subtypes = ['comment', 'def']
-            #skip_subtypes = ['comment']
 
         # Skip certain node types
         child_nodes = self.children
         def is_skiptype(node):
-            skip_types
-            # skip_figures = self._config['asmarkdown']
-            # skip_figures = False
-            # if skip_figures:
-            #     # HACK FOR THESIS
-            #     hackfigtypes = ['mergecase', 'splitcase', 'popest',
-            #                     'ThreeSixty', 'PoseExample',
-            #                     'OcclusionAndDistractors',
-            #                     'ShadowAndIllumination',
-            #                     'OccurrenceCompliment', 'Quality', 'Age',
-            #                     'doubledepc']
-            #     skip_types_ += hackfigtypes
-            #     if node.type_.lower().endswith('figure'):
-            #         return False
             return node.type_ not in skip_types
 
         skip_type_flags = [is_skiptype(x)  for x in child_nodes]
@@ -316,62 +313,24 @@ class _Reformater(object):
                  for count, (x, y) in enumerate(ut.itertwo(child_nodes, wrap=True))]
         child_nodes = ut.compress(child_nodes, flags)
 
-        # combine / collapse / merge consecutive nodes of the same subtype.
-        # FIXME: CAUSES BUGS CHANGES INTERNAL STATE. VERY BAD
-        if self._config['compress_consecutive'] and False:
-            import numpy as np
-            if self._config['numlines'] > 0 or self.in_full_outline_section(outline):
-                flags = [not (x.type_ == 'lines' and y.type_ == 'lines' and x.subtype == y.subtype)
-                         for (x, y) in ut.itertwo(child_nodes)]
-            else:
-                flags = [not (x.type_ == 'lines' and y.type_ == 'lines')
-                         for (x, y) in ut.itertwo(child_nodes)]
-
-            # Merge lines in the grouped nodes together
-            grouped_nodes = np.split(child_nodes, np.where(flags)[0] + 1)
-            child_nodes = []
-            for nodes in grouped_nodes:
-                if len(nodes) == 0:
-                    pass
-                elif len(nodes) == 1:
-                    child_nodes.append(nodes[0])
-                else:
-                    node = nodes[0]
-                    for node_ in nodes[1:]:
-                        if node.subtype == 'space' and node_.subtype != 'space':
-                            node.subtype = node_.subtype
-                        node.lines += node_.lines[:]
-                    child_nodes.append(node)
-
-        header_blocks = self._summary_headerblocks(outline=outline)
-
-        child_blocks = ut.flatten([child.summary_str_blocks(outline=outline, depth=depth)
+        child_blocks = ut.flatten([child.summary_str_blocks(outline=outline,
+                                                            depth=depth,
+                                                            numlines=numlines)
                                    for child in child_nodes])
+        return child_blocks
 
+    def summary_str_blocks(self, outline=False, depth=None, numlines=None):
+        """
+        Recursive function that builds summary strings
+        """
+
+        header_blocks = self._summary_headerblocks(outline=outline, numlines=numlines)
         footer_blocks = self._summary_footerblocks(outline=outline)
 
         # Make child strings
         if self.type_ == 'figure' and outline:
-            # child_blocks = ['this is a figure']
-            text = '\n'.join(child_blocks)
-
-            # match = re.search('\\\\caption\[[^\]]*\]{.*}(\n|\s)*\\label', text, flags=re.DOTALL)
-            ref = ut.named_field
-            match = re.search('\\\\caption\[.*\]{' + ref('caption', '.*?') +
-                              '}(\n|\s)*\\\\label', text, flags=re.DOTALL)
-            figcap = (match.groupdict()['caption'])
-            figcap = re.sub('\\\\caplbl{[^}]*}', '', figcap).strip()
-            if match is None:
-                if ut.VERBOSE:
-                    child_blocks = [
-                        ('WARNING match = %r\n' % (match,))
-                        ('NONE DEF\n')
-                        (str(node))
-                    ]
-            else:
-                child_blocks = [figcap]
-
-        if self.type_ == 'equation' and outline:
+            child_blocks = [self.get_caption()]
+        elif self.type_ == 'equation' and outline:
             if self._config['asmarkdown']:
                 # http://jaxedit.com/mark/
                 footer_blocks = ['$$\n']
@@ -387,7 +346,10 @@ class _Reformater(object):
                 header_blocks[0] += r'\end{pythoncode*}'
                 child_blocks = []
                 footer_blocks = []
-            pass
+        else:
+            child_blocks = self._summary_childblocks(outline=outline,
+                                                     numlines=numlines,
+                                                     depth=depth)
 
         block_parts = []
         block_parts += header_blocks
@@ -395,8 +357,40 @@ class _Reformater(object):
         block_parts += footer_blocks
         return block_parts
 
-    def summary_str(self, outline=False, highlight=False, depth=None, hack_figdef=True):
-        block_parts = self.summary_str_blocks(outline, depth=depth)
+    def get_caption(self):
+        assert self.type_ in {'figure', 'table'}
+
+        child_blocks = self._summary_childblocks(outline=True, numlines=float('inf'))
+
+        # child_blocks = ['this is a figure']
+        text = '\n'.join(child_blocks)
+        # match = re.search('\\\\caption\[[^\]]*\]{.*}(\n|\s)*\\label', text, flags=re.DOTALL)
+        ref = ut.named_field
+        try:
+            match = re.search('\\\\caption\[.*\]{' + ref('caption', '.*?') +
+                              '}(\n|\s)*\\\\label', text, flags=re.DOTALL)
+            figcap = (match.groupdict()['caption'])
+        except Exception:
+            print('failed to parse')
+            print(text)
+            return self._summary_childblocks()
+            raise
+        figcap = re.sub('\\\\caplbl{[^}]*}', '', figcap).strip()
+        if match is None:
+            if ut.VERBOSE:
+                child_blocks = [
+                    ('WARNING match = %r\n' % (match,))
+                    ('NONE DEF\n')
+                    (str(self))
+                ]
+        else:
+            return figcap
+            child_blocks = [figcap]
+
+    def summary_str(self, outline=False, highlight=False, depth=None,
+                    hack_figdef=True, numlines=None):
+        block_parts = self.summary_str_blocks(outline, depth=depth,
+                                              numlines=numlines)
         summary = '\n'.join(block_parts)
 
         if outline:
@@ -584,28 +578,60 @@ class _Reformater(object):
                                          color='darkyellow')
         return summary
 
+    def parse_command_def(self):
+        assert self.type_ in {'newcommand', 'renewcommand'}
+        field = ut.named_field
+        newcommand_pats = [
+            '\\\\(re)?newcommand{' + field('key', '\\\\' + RE_VARNAME) + '}{' + field('val', '.*') + '}',
+            '\\\\(re)?newcommand{' + field('key', '\\\\' + RE_VARNAME) + '}\[1\]{' + field('val', '.*') + '}',
+        ]
+        sline = '\n'.join(self.lines).strip()
+        for nargs, pat in enumerate(newcommand_pats):
+            match = re.match(pat, sline, flags=re.MULTILINE | re.DOTALL)
+            if match is not None:
+                key = match.groupdict()['key']
+                val = match.groupdict()['val']
+                val = val.replace('\\zspace', '')
+                val = val.replace('\\xspace', '')
+                yield key, val, nargs
+                # defmap[nargs] = cmd_map = defmap.get(nargs, {})
+                # cmd_map[key] = val
+
+    def parse_includegraphics(self):
+        assert self.type_ == 'figure'
+        text = self.summary_str(outline=True, numlines=float('inf'))
+        field = ut.named_field
+        pat = 'includegraphics(\[' + field('options', '.*') + '\])?' + '{' + field('fpath', '.*?') + '}'
+        for match in re.finditer(pat, text):
+            yield match.groupdict()
+
     def parse_newcommands(self):
         # Hack to read all defined commands in this document
         def_list = list(self.find_descendant_types('newcommand'))
         redef_list = list(self.find_descendant_types('renewcommand'))
         def_list += redef_list
         defmap = ut.odict()
-        field = ut.named_field
-        newcommand_pats = [
-            '\\\\(re)?newcommand{' + field('key', '\\\\' + RE_VARNAME) + '}{' + field('val', '.*') + '}',
-            '\\\\(re)?newcommand{' + field('key', '\\\\' + RE_VARNAME) + '}\[1\]{' + field('val', '.*') + '}',
-        ]
+        # field = ut.named_field
+        # newcommand_pats = [
+        #     '\\\\(re)?newcommand{' + field('key', '\\\\' + RE_VARNAME) + '}{' + field('val', '.*') + '}',
+        #     '\\\\(re)?newcommand{' + field('key', '\\\\' + RE_VARNAME) + '}\[1\]{' + field('val', '.*') + '}',
+        # ]
         for defnode in def_list:
-            sline = '\n'.join(defnode.lines).strip()
-            for nargs, pat in enumerate(newcommand_pats):
-                match = re.match(pat, sline)
-                if match is not None:
-                    key = match.groupdict()['key']
-                    val = match.groupdict()['val']
-                    val = val.replace('\\zspace', '')
-                    val = val.replace('\\xspace', '')
+            for key, val, nargs in defnode.parse_command_def():
+                if val is not None:
                     defmap[nargs] = cmd_map = defmap.get(nargs, {})
                     cmd_map[key] = val
+
+            # sline = '\n'.join(defnode.lines).strip()
+            # for nargs, pat in enumerate(newcommand_pats):
+            #     match = re.match(pat, sline)
+            #     if match is not None:
+            #         key = match.groupdict()['key']
+            #         val = match.groupdict()['val']
+            #         val = val.replace('\\zspace', '')
+            #         val = val.replace('\\xspace', '')
+            #         defmap[nargs] = cmd_map = defmap.get(nargs, {})
+            #         cmd_map[key] = val
 
         usage_pat = ut.regex_or(['\\\\' + RE_VARNAME + '{}', '\\\\' + RE_VARNAME])
         cmd_map0 = defmap.get(0, {})

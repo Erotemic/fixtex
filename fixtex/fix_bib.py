@@ -523,7 +523,6 @@ def main(bib_fpath=None):
             bibtex_dict[k] = v
 
     full = ut.get_argflag('--full')
-    full = True
 
     for key in key_list:
         try:
@@ -587,7 +586,7 @@ def main(bib_fpath=None):
                 print('old = %r' % (old,))
             d1[key] = self.entry
 
-    if 1:
+    if full:
         d1 = bibtex_dict.copy()
 
         import numpy as np
