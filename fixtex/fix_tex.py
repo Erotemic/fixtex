@@ -388,7 +388,7 @@ def fix_conference_title_names(clean_text, key_list=None):
             # for conf_title, patterns in constants_tex_fixes.CONFERENCE_TITLE_MAPS.items():
             for conf in constants_tex_fixes.CONFERENCES:
                 if conf.matches(old_confval):
-                    conf_title = conf.abbrev()
+                    conf_title = conf.accro()
                     if debug:
                         print('old_confval = %r' % (old_confval,))
                         print('conf_title = %r' % (conf_title,))

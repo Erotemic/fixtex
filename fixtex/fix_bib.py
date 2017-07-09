@@ -18,81 +18,331 @@ from bibtexparser.bwriter import BibTexWriter
 from fixtex import constants_tex_fixes
 
 
+class BibMan(object):
+    def __init__(bibman, fpath, doc='thesis'):
+        bibman.fpath = fpath
+        bibman.cleaned = None
+        bibman.raw_entries = None
+        bibman.raw_text = None
+        bibman.doc = doc
+        bibman.unregistered_pubs = []
+        bibman._init()
+
+    def sort_entries(bibman):
+
+        def freq_group(items, groupids):
+            groups = ut.group_items(items, groupids)
+            hist = ut.map_vals(len, groups)
+            for k in ut.argsort(hist):
+                yield groups[k]
+
+        high_level_alias = {
+            'incollection': 'book',
+            'conference': 'confjourn',
+            'journal': 'confjourn',
+            'online-journal': 'confjourn',
+        }
+        sorted_entries = []
+        entries = list(bibman.cleaned.values())
+        groups = [high_level_alias.get(entry['pub_type'], entry['pub_type'])
+                  for entry in entries]
+        entry_groups = freq_group(entries, groups)
+        for group in entry_groups:
+            subids = [entry['ENTRYTYPE'] for entry in group]
+            for subgroup in freq_group(group, subids):
+                subsubids = [entry['pub_full'] for entry in subgroup]
+                # Group publications, and then sort conferences by max date
+                pub_groups = []
+                pub_maxdates = []
+                for ssg in freq_group(subgroup, subsubids):
+                    sssid = [(entry['date']) for entry in ssg]
+                    ssg2 = ut.take(ssg, ut.argsort(sssid))
+                    pub_groups.append(ssg2)
+                    pub_maxdates.append(ssg2[-1]['date'])
+                subgroup2 = ut.flatten(ut.sortedby2(pub_groups, pub_maxdates))
+                sorted_entries.extend(subgroup2)
+        new_entries = ut.odict([(e['ID'], e) for e in sorted_entries])
+        [e['pub_type'] for e in sorted_entries]
+        bibman.cleaned = new_entries
+
+    def __getitem__(bibman, key):
+        item = bibman.cleaned[key]
+        return item
+
+    def save(bibman):
+        text2 = bibman.dumps()
+        ut.writeto(bibman.fpath, text2)
+
+    def dumps(bibman):
+        db = bibtexparser.bparser.BibDatabase()
+        db._entries_dict = bibman.cleaned
+        db.entries = list(bibman.cleaned.values())
+        writer = BibTexWriter()
+        # writer.order_entries_by = ('type', 'author', 'year')
+        writer.order_entries_by = None
+        writer.contents = ['comments', 'entries']
+        writer.indent = '    '
+        new_text = bibtexparser.dumps(db, writer)
+        return new_text
+
+    def printdiff(bibman):
+        text1 = bibman.raw_text
+        text2 = bibman.dumps()
+
+        def remove_lines(text, pats):
+            text = '\n'.join([t for t in text.split('\n') if not any(p in t for p in pats)])
+            return text
+
+        # pats = ['CoRR', 'Computing Res.', 'pub_type', 'pub_abbrev',
+        #         'pub_accro', 'pub_full']
+        # pats = []
+        # text1 = remove_lines(text1, pats)
+        # text2 = remove_lines(text2, pats)
+        print(ut.color_diff_text(ut.difftext(text1, text2,
+                                             num_context_lines=10)))
+
+    def _init(bibman):
+        bibman._read_raw_entries()
+        bibman._clean_entries()
+
+    def _clean_entries(bibman):
+        bibman.cleaned = {}
+        for key, entry in bibman.raw_entries.items():
+            cleaner = BibTexCleaner(key, entry, doc=bibman.doc)
+            new_entry = cleaner.fix()
+            pub = cleaner.publication()
+            if not pub.registered:
+                pub.entry = entry
+                bibman.unregistered_pubs.append(pub)
+            bibman.cleaned[key] = new_entry
+
+    def _read_raw_entries(bibman):
+        parser = bparser.BibTexParser()
+        ut.delete_keys(parser.alt_dict, ['url', 'urls'])
+        parser.ignore_nonstandard_types = False
+        text = ut.read_from(bibman.fpath)
+
+        # ensure good format
+        flag = 0
+        for x in re.finditer('^.*}\n[^}\n]', text, flags=re.MULTILINE):
+            lineno = x.string[:x.start()].count('\n') + 1
+            print('DID YOU FORGET A COMMA ON lineno = {!r}'.format(lineno))
+            print(x.group())
+            flag += 1
+        assert not flag, 'fix formating'
+
+        database = parser.parse(text)
+        entries = database.entries
+        raw_entries = database.get_entry_dict()
+        raw_entries = ut.order_dict_by(raw_entries, [e['ID'] for e in entries])
+        bibman.raw_text = text
+        bibman.raw_entries = raw_entries
+
+    def fix_conference_places(bibman):
+
+        pubman = constants_tex_fixes.PubManager()
+
+        needed = set()
+
+        for entry in bibman.cleaned.values():
+            if entry['pub_type'] == 'conference':
+                accro, year = (entry['pub_accro'], entry['year'])
+                pub = pubman.find(accro)
+                if pub.places is None or int(year) not in pub.places:
+                    needed.add((accro, year))
+                else:
+                    place = pub.places[int(year)]
+                    print('place = {!r}'.format(place))
+                    entry['address'] = place
+
+        if needed:
+            needed = list(needed)
+            used_years = ut.group_items(needed, ut.take_column(needed, 0))
+            for k, v in list(used_years.items()):
+                used_years[k] = sorted(v)
+
+            sortby = ut.map_vals(lambda vs: (len(vs), max(e[1] for e in vs)),
+                                 used_years)
+            used_years = ut.order_dict_by(used_years, ut.argsort(sortby))
+            print('NEED CONFERENCE LOCATIONS')
+            print(ut.repr4(used_years, nl=2))
+
+
 class BibTexCleaner(object):
-    def __init__(self, key, entry, full=False):
-        self.key = key
-        self.entry = entry
-        self.USE_FULL = full
-        if self.USE_FULL:
-            self.FOR = 'thesis'
+    def __init__(cleaner, key, entry, doc=None, full=False):
+        cleaner.key = key
+        cleaner.entry = entry
+        cleaner._pub = None
+        if doc is not None:
+            cleaner.FOR = doc
         else:
-            self.FOR = 'conference'
+            if full:
+                cleaner.FOR = 'thesis'
+            else:
+                cleaner.FOR = 'conference'
 
-    def clip_abstract(self):
+    def clip_abstract(cleaner):
         # Clip abstrat
-        if 'abstract' in self.entry:
-            parts = self.entry['abstract'].split(' ')[0:7]
-            self.entry['abstract'] = ' '.join(parts)
+        if 'abstract' in cleaner.entry:
+            parts = cleaner.entry['abstract'].split(' ')[0:7]
+            cleaner.entry['abstract'] = ' '.join(parts)
 
-    def fix_year(self):
-        if 'year' not in self.entry:
-            if 'date' in self.entry:
-                if '-' in self.entry['date']:
-                    dateparts = self.entry['date'].split('-')
-                else:
-                    dateparts = self.entry['date'].split('/')
-                if len(dateparts) in {1, 2, 3} and len(dateparts[0]) == 4:
-                    year = dateparts[0]
-                else:
-                    print('unknown year format')
-                    import utool
-                    utool.embed()
-                self.entry['year'] = year
+    def fix(cleaner):
+        cleaner.clip_abstract()
+        cleaner.shorten_keys()
+        cleaner.fix_authors()
+        cleaner.fix_pubkey()
+        cleaner.fix_arxiv()
+        cleaner.fix_general()
 
-    def shorten_keys(self):
+        cleaner.fix_year()
+
+        return cleaner.entry
+
+    def fix_year(cleaner):
+        import calendar
+        month_lookup = {v: k for k, v in
+                        enumerate(calendar.month_abbr)}
+        if cleaner.FOR == 'thesis':
+            pub = cleaner.publication()
+            needs_month = pub.type == 'journal'
+        else:
+            needs_month = False
+        if 'month' in cleaner.entry:
+            needs_month = False
+        needs_year = 'year' not in cleaner.entry
+
+        if needs_year or needs_month:
+            if 'date' in cleaner.entry:
+                if '-' in cleaner.entry['date']:
+                    dateparts = cleaner.entry['date'].split('-')
+                else:
+                    dateparts = cleaner.entry['date'].split('/')
+                if needs_year:
+                    if len(dateparts) in {1, 2, 3} and len(dateparts[0]) == 4:
+                        year = dateparts[0]
+                    else:
+                        print(ut.repr4(cleaner.entry))
+                        print('unknown year format')
+                        import utool
+                        utool.embed()
+                    cleaner.entry['year'] = year
+                if needs_month:
+                    month = None
+                    if len(dateparts) in {2, 3} and len(dateparts[0]) == 4:
+                        month = dateparts[1]
+                    else:
+                        if 'issue' in cleaner.entry:
+                            issue = cleaner.entry['issue']
+                            month = month_lookup[issue]
+
+                    if month is None:
+                        if pub.accro() == 'CoRR':
+                            print('PARSING NEW MONTH FOR')
+                            print(ut.repr4(cleaner.entry))
+                            url = cleaner.entry['url']
+                            import bs4
+                            import requests
+                            import parse
+                            r = requests.get(url)
+                            data = r.text
+                            soup = bs4.BeautifulSoup(data, 'html.parser')
+                            elems = soup.find_all(text=re.compile(
+                                '\\(this version.*', flags=re.IGNORECASE))
+                            if elems:
+                                assert len(elems) == 1
+                                elem = elems[0]
+                                result = parse.parse(
+                                    '{}revised {day:d} {mo} {year:d} (this{}', elem)
+                            else:
+                                elems = soup.find_all(text=re.compile(
+                                    '.Submitted on.*', flags=re.IGNORECASE))
+                                assert len(elems) == 1
+                                elem = elems[0]
+                                result = parse.parse(
+                                    '{}Submitted on {day:d} {mo} {year:d}{}', elem)
+
+                            year = result['year']
+                            month = month_lookup[result['mo']]
+                            day = result['day']
+                            print('{}-{}-{}'.format(year, month, day))
+
+                    if month is None:
+                        print('UNKNOWN MONTH FORMAT')
+                        print(ut.repr4(cleaner.entry))
+                    else:
+                        cleaner.entry['month'] = str(month)
+        try:
+            if 'date' not in cleaner.entry:
+                if 'year' in cleaner.entry:
+                    if 'month' in cleaner.entry:
+                        cleaner.entry['date'] = (
+                            cleaner.entry['year'] + '-' + cleaner.entry['month'])
+                    else:
+                        cleaner.entry['date'] = cleaner.entry['year']
+            if 'month' in cleaner.entry:
+                try:
+                    # print('month_str = {!r}'.format(month_str))
+                    # print('month_no = {!r}'.format(month_no))
+                    month_str = cleaner.entry['month']
+                    month_no = int(month_str)
+                    cleaner.entry['month'] = calendar.month_abbr[month_no]
+                except Exception:
+                    pass
+        except Exception:
+            print('ISSUE WITH DATE PARSE')
+            print(ut.repr4(cleaner.entry))
+            raise
+            pass
+
+    def shorten_keys(cleaner):
         # Remove Keys
         detail_level = {
             'thesis': 3,
             'journal': 2,
             'conference': 1,
         }
-        level = detail_level[self.FOR]
+        level = detail_level[cleaner.FOR]
         remove_keys = []
         if level <= 3:
             remove_keys += [
                 'note',
                 # 'series', 'publisher',
-                'isbn', 'editor',
+                'isbn',
+                # 'editor',
                 'shorttitle', 'copyright', 'language',
-                'rights', 'langid', 'keywords', 'shortjournal', 'issn', 'file',
+                'rights', 'langid',
+                'keywords', 'shortjournal',
+                'issn', 'file',
             ]
         if level <= 2:
             remove_keys += ['number',  'pages', 'volume']
 
-        self.entry = ut.delete_dict_keys(self.entry, remove_keys)
+        cleaner.entry = ut.delete_dict_keys(cleaner.entry, remove_keys)
 
-    def _pubkey(self):
+    def _pubkey(cleaner):
         journal_keys = ['journal', 'journaltitle']
         conf_keys = ['booktitle', 'eventtitle']
-        valid_keys = conf_keys + journal_keys
+        report_keys = ['institution']
+        valid_keys = conf_keys + journal_keys + report_keys
 
-        # if 'journaltitle' in self.entry:
+        # if 'journaltitle' in cleaner.entry:
         #     return 'journaltitle'
-        pubkeys = sorted(set(self.entry.keys()).intersection(valid_keys))
+        pubkeys = sorted(set(cleaner.entry.keys()).intersection(valid_keys))
         if len(pubkeys) == 1:
             pubkey = pubkeys[0]
         else:
             if len(pubkeys) > 1:
-                vals = ut.take(self.entry, pubkeys)
+                vals = ut.take(cleaner.entry, pubkeys)
                 flags = [v is not None for v in vals]
                 if sum(flags) == 0:
                     print('pubkeys = %r' % (pubkeys,))
-                    print(ut.repr4(self.entry))
+                    print(ut.repr4(cleaner.entry))
                     raise AssertionError('missing pubkey')
                 else:
                     pubkeys = ut.compress(pubkeys, flags)
                     vals = ut.compress(vals, flags)
-                    # vals = ut.emap(self.transform_pubval, vals)
+                    # vals = ut.emap(cleaner.transform_pubval, vals)
                     if sum(flags) == 1:
                         pubkey = pubkeys[0]
                     else:
@@ -103,62 +353,74 @@ class BibTexCleaner(object):
                         else:
                             print('pubkeys = %r' % (pubkeys,))
                             print('vals = %r' % (vals,))
-                            print(ut.repr4(self.entry))
+                            print(ut.repr4(cleaner.entry))
                             raise AssertionError('more than one pubkey=%r' % (pubkeys,))
             else:
                 pubkey = None
         return pubkey
 
-    def _pubval(self):
+    def _pubval(cleaner):
         """
         Finds conference or journal
         """
-        pubkey = self._pubkey()
+        pubkey = cleaner._pubkey()
         if pubkey is None:
             pubval = None
         else:
-            pubval = self.entry[pubkey]
+            pubval = cleaner.entry[pubkey]
             pubval = pubval.replace('{', '').replace('}', '')
         return pubval
 
     @property
-    def pubval(self):
-        return self.standard_pubval(full=False)
+    def pubval(cleaner):
+        return cleaner.standard_pubval(full=False)
 
-    def publication(self):
-        old_pubval = self._pubval()
-        if old_pubval is None:
-            return None
-        candidates = []
-        # Check if the publication name matches any standard patterns
-        if old_pubval.startswith('arXiv'):
-            old_pubval = 'CoRR'
-        for pub in constants_tex_fixes.PUBLICATIONS:
-            if pub.matches(old_pubval):
-                candidates.append(pub)
-        if len(candidates) == 0:
-            print('COULD NOT MATCH: %r' % old_pubval)
-            return None
-        elif len(candidates) == 1:
-            return candidates[0]
-        else:
-            print('DOUBLE MATCH:')
-            print(ut.repr4(self.entry))
-            print('old_pubval = %r' % (old_pubval,))
-            print('candidates = %r' % (candidates,))
-            raise RuntimeError('double match')
-
-    def transform_pubval(self, old_pubval, full=None):
-        if full is None:
-            full = self.USE_FULL
-        pub = self.publication()
-        if pub is not None:
-            if full:
-                new_confval = pub.full()
+    def publication(cleaner):
+        if cleaner._pub is None:
+            old_pubval = cleaner._pubval()
+            if old_pubval is None:
+                # Non-standard publications (that shouldn't be registerd)
+                type = cleaner.entry['ENTRYTYPE']
+                if type == 'book':
+                    old_pubval = cleaner.entry['title']
+                cleaner._pub = constants_tex_fixes.Pub(
+                    type=type, full=old_pubval, registered=False,
+                    publisher=cleaner.entry.get('publisher', None)
+                )
             else:
-                new_confval = pub.abbrev()
+                pubman = constants_tex_fixes.PubManager()
+                candidates = pubman.findall(old_pubval)
+
+                if len(candidates) == 0:
+                    print('UNREGISTERED PUBLICATION: %r' % old_pubval)
+                    type = cleaner.entry['ENTRYTYPE']
+                    # Try to make a pub as best as we can
+                    cleaner._pub = constants_tex_fixes.Pub(
+                        None, full=old_pubval, type=type, registered=False)
+                elif len(candidates) == 1:
+                    cleaner._pub = candidates[0]
+                else:
+                    print('NON-UNIQUE PUBLICATION (DOUBLE MATCH):')
+                    print(ut.repr4(cleaner.entry))
+                    print('old_pubval = %r' % (old_pubval,))
+                    print('candidates = %r' % (candidates,))
+                    raise RuntimeError('double match')
+        return cleaner._pub
+
+    def transform_pubval(cleaner, old_pubval, full=None):
+        if full is None:
+            full = cleaner.FOR == 'thesis'
+        pub = cleaner.publication()
+        if pub:
+            if full:
+                if pub.type in {'conference', 'journal'}:
+                    new_confval = pub.abbrev()
+                else:
+                    new_confval = pub.full()
+            else:
+                new_confval = pub.accro()
         else:
-            new_confval = self._pubval()
+            new_confval = cleaner._pubval()
         return new_confval
 
         # candidates = []
@@ -177,147 +439,185 @@ class BibTexCleaner(object):
         #     if full:
         #         new_confval = candidates[0].full()
         #     else:
-        #         new_confval = candidates[0].abbrev()
+        #         new_confval = candidates[0].accro()
         # else:
         #     print('DOUBLE MATCH:')
-        #     print(ut.repr4(self.entry))
+        #     print(ut.repr4(cleaner.entry))
         #     print('old_pubval = %r' % (old_pubval,))
         #     print('candidates = %r' % (candidates,))
         #     raise RuntimeError('double match')
         # return new_confval
 
-    def standard_pubval(self, full=None):
-        old_pubval = self._pubval()
+    def standard_pubval(cleaner, full=None):
+        old_pubval = cleaner._pubval()
         if old_pubval is None:
             return None
-        new_confval = self.transform_pubval(old_pubval, full=full)
+        new_confval = cleaner.transform_pubval(old_pubval, full=full)
         return new_confval
 
-    def fix_pubkey(self):
-        pubkey = self._pubkey()
+    def fix_pubkey(cleaner):
+        pubkey = cleaner._pubkey()
         if pubkey == 'journaltitle':
             # Fix pubkey for journals
-            self.entry['journal'] = self.entry['journaltitle']
-            del self.entry['journaltitle']
+            cleaner.entry['journal'] = cleaner.entry['journaltitle']
+            del cleaner.entry['journaltitle']
             pubkey = 'journal'
 
         if pubkey == 'eventtitle':
             # Fix pubkey for journals
-            self.entry['booktitle'] = self.entry['eventtitle']
-            del self.entry['eventtitle']
+            cleaner.entry['booktitle'] = cleaner.entry['eventtitle']
+            del cleaner.entry['eventtitle']
             pubkey = 'booktitle'
 
         if pubkey is not None:
-            old_pubval = self._pubval()
-            new_confval = self.standard_pubval()
+            old_pubval = cleaner._pubval()
+            new_confval = cleaner.standard_pubval()
 
             if new_confval is None:
                 # Maybe the pattern is missing?
                 return old_pubval
             else:
                 # Overwrite the conference name
-                self.entry[pubkey] = new_confval
+                cleaner.entry[pubkey] = new_confval
 
-    def fix_general(self):
-        pub = self.publication()
-        if pub is not None:
-            if pub.type is None:
-                print('TYPE NOT KNOWN FOR pub=%r' % pub)
+    def fix_general(cleaner):
+        pub = cleaner.publication()
+        if pub.type is not None:
+            # if pub.type is None:
+            #     print('TYPE NOT KNOWN FOR pub=%r' % pub)
             if pub.type == 'journal':
-                if self.entry['ENTRYTYPE'] != 'article':
+                if cleaner.entry['ENTRYTYPE'] != 'article':
                     print('ENTRY IS A JOURNAL BUT NOT ARTICLE')
-                    print(ut.repr4(self.entry))
+                    print(ut.repr4(cleaner.entry))
             if pub.type == 'conference':
-                # if self.entry['ENTRYTYPE'] == 'incollection':
-                #     self.entry['ENTRYTYPE'] = 'conference'
-                if self.entry['ENTRYTYPE'] == 'inproceedings':
-                    self.entry['ENTRYTYPE'] = 'conference'
+                # if cleaner.entry['ENTRYTYPE'] == 'incollection':
+                #     cleaner.entry['ENTRYTYPE'] = 'conference'
+                if cleaner.entry['ENTRYTYPE'] == 'inproceedings':
+                    cleaner.entry['ENTRYTYPE'] = 'conference'
 
-                if self.entry['ENTRYTYPE'] != 'conference':
+                if cleaner.entry['ENTRYTYPE'] != 'conference':
                     print('ENTRY IS A CONFERENCE BUT NOT INPROCEEDINGS')
-                    print(ut.repr4(self.entry))
+                    print(ut.repr4(cleaner.entry))
                     # raise RuntimeError('bad conf')
             if pub.type == 'report':
-                if self.entry['ENTRYTYPE'] != 'report':
+                if cleaner.entry['ENTRYTYPE'] != 'report':
                     print('ENTRY IS A REPORT BUT NOT REPORT')
-                    print(ut.repr4(self.entry))
+                    print(ut.repr4(cleaner.entry))
                     # raise RuntimeError('bad conf')
             if pub.type == 'book':
-                if self.entry['ENTRYTYPE'] != 'book':
+                if cleaner.entry['ENTRYTYPE'] != 'book':
                     print('ENTRY IS A BOOK BUT NOT BOOK')
-                    print(ut.repr4(self.entry))
-
-            self.entry['pub_abbrev'] = pub.abbrev()
-            self.entry['pub_full'] = pub.full()
-            self.entry['pub_type'] = str(pub.type)
+                    print(ut.repr4(cleaner.entry))
+            if pub.type == 'incollection':
+                if cleaner.entry['ENTRYTYPE'] != 'incollection':
+                    print('ENTRY IS IN BOOK WITH AUTHORS FOR EACH CHAPTER '
+                          'BUT NOT INCOLLECTION')
+                    print(ut.repr4(cleaner.entry))
+            cleaner.entry['pub_type'] = str(pub.type)
         else:
-            if self.entry['ENTRYTYPE'] not in {'report', 'book', 'misc', 'online', 'thesis', 'phdthesis', 'mastersthesis'}:
+            if cleaner.entry['ENTRYTYPE'] not in {'incollection', 'report',
+                                                  'book', 'misc', 'online',
+                                                  'thesis', 'phdthesis',
+                                                  'mastersthesis'}:
                 print('unknown entrytype')
-                print(ut.repr4(self.entry))
+                print(ut.repr4(cleaner.entry))
 
-        if self.entry['ENTRYTYPE'] == 'thesis':
-            thesis_type = self.entry['type'].lower()
+        if cleaner.entry['ENTRYTYPE'] == 'phdthesis':
+            cleaner.entry['pub_type'] = 'thesis'
+        if cleaner.entry['ENTRYTYPE'] == 'mastersthesis':
+            cleaner.entry['pub_type'] = 'thesis'
+
+        if cleaner.entry['ENTRYTYPE'] == 'thesis':
+            thesis_type = cleaner.entry['type'].lower()
             thesis_type = thesis_type.replace('.', '').replace(' ', '')
             if thesis_type  == 'phdthesis':
-                self.entry['ENTRYTYPE'] = 'phdthesis'
-                self.entry.pop('type', None)
+                cleaner.entry['ENTRYTYPE'] = 'phdthesis'
+                cleaner.entry.pop('type', None)
             if thesis_type == 'msthesis':
-                self.entry['ENTRYTYPE'] = 'mastersthesis'
-                self.entry.pop('type', None)
-            self.entry['pub_type'] = 'thesis'
+                cleaner.entry['ENTRYTYPE'] = 'mastersthesis'
+                cleaner.entry.pop('type', None)
+            cleaner.entry['pub_type'] = 'thesis'
 
-        if self.entry['ENTRYTYPE'] == 'online':
-            # self.entry['ENTRYTYPE'] = 'misc'
-            # self.entry['howpublished'] = '\\url{%s}' % self.entry['url']
-            accessed = self.entry['urldate']
-            self.entry['note'] = '[Accessed {}]'.format(accessed)
-            self.entry['pub_type'] = 'online'
+        if cleaner.entry['ENTRYTYPE'] == 'report':
+            cleaner.entry['pub_type'] = 'report'
+
+        if pub.published_online():
+            # cleaner.entry['ENTRYTYPE'] = 'misc'
+            # cleaner.entry['howpublished'] = '\\url{%s}' % cleaner.entry['url']
+            if 'urldate' in cleaner.entry:
+                accessed = cleaner.entry['urldate']
+                cleaner.entry['note'] = '[Accessed {}]'.format(accessed)
+                if pub.type == 'journal':
+                    cleaner.entry['pub_type'] = 'online-journal'
+                else:
+                    cleaner.entry['pub_type'] = 'online'
+            else:
+                print('PUBLISHED ONLINE BUT NO URLDATE')
+                print(ut.repr4(cleaner.entry))
         else:
-            self.entry.pop('url', None)
+            cleaner.entry.pop('url', None)
 
-        if self.entry['ENTRYTYPE'] not in {'book', 'incollection'}:
-            self.entry.pop('publisher', None)
-            self.entry.pop('series', None)
+        if cleaner.entry['ENTRYTYPE'] not in {'book', 'incollection'}:
+            pass
+            # cleaner.entry.pop('publisher', None)
+            # cleaner.entry.pop('series', None)
 
-    def fix_arxiv(self):
-        if self.pubval == 'CoRR':
-            import utool
-            with utool.embed_on_exception_context:
-                arxiv_id = None
-                if 'doi' in self.entry and not arxiv_id:
-                    arxiv_id = self.entry.get('doi').lstrip('arXiv:')
-                if 'eprint' in self.entry and not arxiv_id:
-                    arxiv_id = self.entry.get('eprint').lstrip('arXiv:')
-                if not arxiv_id:
-                    print(ut.repr4(self.entry))
-                    raise RuntimeError('Unable to find archix id')
+        cleaner.entry['pub_accro'] = str(pub.accro())
+        cleaner.entry['pub_abbrev'] = str(pub.abbrev())
+        cleaner.entry['pub_full'] = str(pub.full())
 
-                self.entry['volume'] = 'abs/{}'.format(arxiv_id)
+    def fix_arxiv(cleaner):
+        if cleaner.publication().accro() != 'CoRR':
+            return
+        arxiv_id = None
+        if 'doi' in cleaner.entry and not arxiv_id:
+            arxiv_id = cleaner.entry.get('doi').lstrip('arXiv:')
+        if 'eprint' in cleaner.entry and not arxiv_id:
+            arxiv_id = cleaner.entry.get('eprint').lstrip('arXiv:')
+        if 'url' in cleaner.entry and not arxiv_id:
+            try:
+                import parse
+                url = cleaner.entry['url']
+                result = parse.parse('http://arxiv.org/abs/{doi}', url)
+                arxiv_id = result['doi']
+            except Exception:
+                pass
+        if not arxiv_id:
+            print('CANNOT FIND ARCHIX ID')
+            print(ut.repr4(cleaner.entry))
+            # raise RuntimeError('Unable to find archix id')
+        else:
+            cleaner.entry['volume'] = 'abs/{}'.format(arxiv_id)
 
-    def fix_authors(self):
+        if 'url' not in cleaner.entry:
+            cleaner.entry['url'] = 'https://arxiv.org/abs/{}'.format(arxiv_id)
+            # print('NEEDS ARXIV URL')
+            # print(ut.repr4(cleaner.entry))
+
+    def fix_authors(cleaner):
         # Fix Authors
-        if 'author' in self.entry:
-            authors = six.text_type(self.entry['author'])
+        if 'author' in cleaner.entry:
+            authors = six.text_type(cleaner.entry['author'])
             for truename, alias_list in constants_tex_fixes.AUTHOR_NAME_MAPS.items():
                 pattern = six.text_type(
                     ut.regex_or([ut.util_regex.whole_word(alias) for alias in alias_list]))
                 authors = re.sub(pattern, six.text_type(truename), authors, flags=re.UNICODE)
-            self.entry['author'] = authors
+            cleaner.entry['author'] = authors
 
-    def fix_paper_types(self):
+    def fix_paper_types(cleaner):
         """
         Ensure journals and conferences have correct entrytypes.
         """
         # Record info about types of conferneces
         # true_confval = entry[pubkey].replace('{', '').replace('}', '')
-        pubval = self.standard_pubval()
+        pubval = cleaner.standard_pubval()
         type_key = 'ENTRYTYPE'
 
         # article = journal
         # inprocedings = converence paper
 
         # FIX ENTRIES THAT SHOULD BE CONFERENCES
-        entry = self.entry
+        entry = cleaner.entry
         if pubval in constants_tex_fixes.CONFERENCE_LIST:
             if entry[type_key] == 'inproceedings':
                 pass
@@ -384,6 +684,7 @@ def main(bib_fpath=None):
 
     if exists('custom_extra.bib'):
         extra_parser = bparser.BibTexParser(ignore_nonstandard_types=False)
+        ut.delete_keys(parser.alt_dict, ['url', 'urls'])
         print('Parsing extra bibtex file')
         extra_text = ut.read_from('custom_extra.bib')
         extra_database = extra_parser.parse(extra_text, partial=False)
@@ -402,6 +703,7 @@ def main(bib_fpath=None):
 
     print('BIBTEXPARSER LOAD')
     parser = bparser.BibTexParser(ignore_nonstandard_types=False)
+    ut.delete_keys(parser.alt_dict, ['url', 'urls'])
     print('Parsing bibtex file')
     bib_database = parser.parse(dirty_text, partial=False)
     print('Finished parsing')
@@ -538,21 +840,22 @@ def main(bib_fpath=None):
             ut.cprint(' --- ENTRY ---', 'yellow')
             print(ut.repr3(entry))
 
-        self.clip_abstract()
-        self.shorten_keys()
-        self.fix_authors()
-        self.fix_year()
-        old_pubval = self.fix_pubkey()
-        if old_pubval:
-            unknown_pubkeys.append(old_pubval)
-        self.fix_arxiv()
-        self.fix_general()
+        entry = self.fix_all()
+        # self.clip_abstract()
+        # self.shorten_keys()
+        # self.fix_authors()
+        # self.fix_year()
+        # old_pubval = self.fix_pubkey()
+        # if old_pubval:
+        #     unknown_pubkeys.append(old_pubval)
+        # self.fix_arxiv()
+        # self.fix_general()
         # self.fix_paper_types()
 
         if debug:
-            print(ut.repr3(self.entry))
+            print(ut.repr3(entry))
             ut.cprint(' --- END ENTRY ---', 'yellow')
-        bibtex_dict[key] = self.entry
+        bibtex_dict[key] = entry
 
     unwanted_keys = set(bibtex_dict.keys()) - set(key_list)
     if verbose:
@@ -593,7 +896,7 @@ def main(bib_fpath=None):
         import pandas as pd
         df = pd.DataFrame.from_dict(d1, orient='index')
 
-        paged_items = df[~pd.isnull(df['pub_abbrev'])]
+        paged_items = df[~pd.isnull(df['pub_accro'])]
         has_pages = ~pd.isnull(paged_items['pages'])
         print('have pages {} / {}'.format(has_pages.sum(), len(has_pages)))
         print(ut.repr4(paged_items[~has_pages]['title'].values.tolist()))
