@@ -11,8 +11,10 @@ References:
 from __future__ import absolute_import, division, print_function, unicode_literals
 import re
 import utool as ut
+import ubelt as ub
 import six
 import bibtexparser
+from os.path import exists, relpath
 from bibtexparser import bparser
 from bibtexparser.bwriter import BibTexWriter
 from fixtex import constants_tex_fixes
@@ -679,11 +681,11 @@ def main(bib_fpath=None):
     # Read in text and ensure ascii format
     dirty_text = ut.read_from(bib_fpath)
 
-    from os.path import exists, relpath
     from fixtex.fix_tex import find_used_citations, testdata_fpaths
 
     if exists('custom_extra.bib'):
         extra_parser = bparser.BibTexParser(ignore_nonstandard_types=False)
+        parser = bparser.BibTexParser()
         ut.delete_keys(parser.alt_dict, ['url', 'urls'])
         print('Parsing extra bibtex file')
         extra_text = ut.read_from('custom_extra.bib')
@@ -702,7 +704,8 @@ def main(bib_fpath=None):
     # d = bib_database.get_entry_dict()
 
     print('BIBTEXPARSER LOAD')
-    parser = bparser.BibTexParser(ignore_nonstandard_types=False)
+    parser = bparser.BibTexParser(ignore_nonstandard_types=False,
+                                  common_strings=True)
     ut.delete_keys(parser.alt_dict, ['url', 'urls'])
     print('Parsing bibtex file')
     bib_database = parser.parse(dirty_text, partial=False)
@@ -711,14 +714,12 @@ def main(bib_fpath=None):
     bibtex_dict = bib_database.get_entry_dict()
     old_keys = list(bibtex_dict.keys())
     new_keys = []
-    import re
     for key in ut.ProgIter(old_keys, 'fixing keys'):
         new_key = key
         new_key = new_key.replace(':', '')
         new_key = new_key.replace('-', '_')
         new_key = re.sub('__*', '_', new_key)
         new_keys.append(new_key)
-    import ubelt as ub
 
     # assert len(ut.find_duplicate_items(new_keys)) == 0, 'new keys created conflict'
     assert len(ub.find_duplicates(new_keys)) == 0, 'new keys created conflict'
@@ -739,7 +740,6 @@ def main(bib_fpath=None):
     # Find citations from the tex documents
     key_list = None
     if key_list is None:
-        import ubelt as ub
         cacher = ub.Cacher('texcite1', enabled=0)
         data = cacher.tryload()
         if data is None:
@@ -840,7 +840,7 @@ def main(bib_fpath=None):
             ut.cprint(' --- ENTRY ---', 'yellow')
             print(ut.repr3(entry))
 
-        entry = self.fix_all()
+        entry = self.fix()
         # self.clip_abstract()
         # self.shorten_keys()
         # self.fix_authors()
