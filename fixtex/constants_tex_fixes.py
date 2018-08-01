@@ -691,6 +691,20 @@ PUBLICATIONS += [
 ]
 
 
+def register_publication(pub):
+    """ For external custom pubs """
+    global PUBLICATIONS
+    if pub.type == 'conference':
+        if pub.accro is not None and pub.accro not in CONFERENCE_LIST:
+            CONFERENCE_LIST.append(pub.accro)
+        CONFERENCE_LIST.append(pub)
+
+    if pub.type == 'journal':
+        if pub.accro is not None and pub.accro not in JOURNAL_LIST:
+            JOURNAL_LIST.append(pub.accro)
+    PUBLICATIONS.append(pub)
+
+
 def _test():
     """
     from fixtex.constants_tex_fixes import *

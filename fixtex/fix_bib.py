@@ -33,9 +33,9 @@ class BibMan(object):
     def sort_entries(bibman):
 
         def freq_group(items, groupids):
-            groups = ut.group_items(items, groupids)
-            hist = ut.map_vals(len, groups)
-            for k in ut.argsort(hist):
+            groups = ub.group_items(items, groupids)
+            hist = ub.map_vals(len, groups)
+            for k in ub.argsort(hist):
                 yield groups[k]
 
         high_level_alias = {
@@ -58,12 +58,12 @@ class BibMan(object):
                 pub_maxdates = []
                 for ssg in freq_group(subgroup, subsubids):
                     sssid = [(entry['date']) for entry in ssg]
-                    ssg2 = ut.take(ssg, ut.argsort(sssid))
+                    ssg2 = list(ub.take(ssg, ub.argsort(sssid)))
                     pub_groups.append(ssg2)
                     pub_maxdates.append(ssg2[-1]['date'])
-                subgroup2 = ut.flatten(ut.sortedby2(pub_groups, pub_maxdates))
+                subgroup2 = list(ub.flatten(ut.sortedby2(pub_groups, pub_maxdates)))
                 sorted_entries.extend(subgroup2)
-        new_entries = ut.odict([(e['ID'], e) for e in sorted_entries])
+        new_entries = ub.odict([(e['ID'], e) for e in sorted_entries])
         [e['pub_type'] for e in sorted_entries]
         bibman.cleaned = new_entries
 
@@ -122,7 +122,7 @@ class BibMan(object):
         parser = bparser.BibTexParser()
         ut.delete_keys(parser.alt_dict, ['url', 'urls'])
         parser.ignore_nonstandard_types = False
-        text = ut.read_from(bibman.fpath)
+        text = ut.readfrom(bibman.fpath)
 
         # ensure good format
         flag = 0
@@ -159,18 +159,21 @@ class BibMan(object):
 
         if needed:
             needed = list(needed)
-            used_years = ut.group_items(needed, ut.take_column(needed, 0))
+            used_years = ub.group_items(needed, ut.take_column(needed, 0))
             for k, v in list(used_years.items()):
                 used_years[k] = sorted(v)
 
-            sortby = ut.map_vals(lambda vs: (len(vs), max(e[1] for e in vs)),
+            sortby = ub.map_vals(lambda vs: (len(vs), max(e[1] for e in vs)),
                                  used_years)
-            used_years = ut.order_dict_by(used_years, ut.argsort(sortby))
+            used_years = ut.order_dict_by(used_years, ub.argsort(sortby))
             print('NEED CONFERENCE LOCATIONS')
-            print(ut.repr4(used_years, nl=2))
+            print(ub.repr2(used_years, nl=2))
 
 
 class BibTexCleaner(object):
+    """
+    Cleans an individual bibtex entry
+    """
     def __init__(cleaner, key, entry, doc=None, full=False):
         cleaner.key = key
         cleaner.entry = entry
@@ -224,10 +227,8 @@ class BibTexCleaner(object):
                     if len(dateparts) in {1, 2, 3} and len(dateparts[0]) == 4:
                         year = dateparts[0]
                     else:
-                        print(ut.repr4(cleaner.entry))
+                        print(ub.repr2(cleaner.entry))
                         print('unknown year format')
-                        import utool
-                        utool.embed()
                     cleaner.entry['year'] = year
                 if needs_month:
                     month = None
@@ -241,7 +242,7 @@ class BibTexCleaner(object):
                     if month is None:
                         if pub.accro() == 'CoRR':
                             print('PARSING NEW MONTH FOR')
-                            print(ut.repr4(cleaner.entry))
+                            print(ub.repr2(cleaner.entry))
                             url = cleaner.entry['url']
                             import bs4
                             import requests
@@ -271,7 +272,7 @@ class BibTexCleaner(object):
 
                     if month is None:
                         print('UNKNOWN MONTH FORMAT')
-                        print(ut.repr4(cleaner.entry))
+                        print(ub.repr2(cleaner.entry))
                     else:
                         cleaner.entry['month'] = str(month)
         try:
@@ -293,7 +294,7 @@ class BibTexCleaner(object):
                     pass
         except Exception:
             print('ISSUE WITH DATE PARSE')
-            print(ut.repr4(cleaner.entry))
+            print(ub.repr2(cleaner.entry))
             raise
             pass
 
@@ -309,13 +310,18 @@ class BibTexCleaner(object):
         if level <= 3:
             remove_keys += [
                 'note',
-                # 'series', 'publisher',
                 'isbn',
-                # 'editor',
                 'shorttitle', 'copyright', 'language',
                 'rights', 'langid',
                 'keywords', 'shortjournal',
                 'issn', 'file',
+            ]
+            remove_keys += [
+                # Pretty sure I needed these on for my thesis, but I think they
+                # are ugly and don't add much, so turn them off for future work
+                'series', 'publisher',
+                'editor',
+                'address',
             ]
         if level <= 2:
             remove_keys += ['number',  'pages', 'volume']
@@ -335,15 +341,15 @@ class BibTexCleaner(object):
             pubkey = pubkeys[0]
         else:
             if len(pubkeys) > 1:
-                vals = ut.take(cleaner.entry, pubkeys)
+                vals = list(ub.take(cleaner.entry, pubkeys))
                 flags = [v is not None for v in vals]
                 if sum(flags) == 0:
                     print('pubkeys = %r' % (pubkeys,))
-                    print(ut.repr4(cleaner.entry))
+                    print(ub.repr2(cleaner.entry))
                     raise AssertionError('missing pubkey')
                 else:
-                    pubkeys = ut.compress(pubkeys, flags)
-                    vals = ut.compress(vals, flags)
+                    pubkeys = list(ub.compress(pubkeys, flags))
+                    vals = list(ub.compress(vals, flags))
                     # vals = ut.emap(cleaner.transform_pubval, vals)
                     if sum(flags) == 1:
                         pubkey = pubkeys[0]
@@ -355,7 +361,7 @@ class BibTexCleaner(object):
                         else:
                             print('pubkeys = %r' % (pubkeys,))
                             print('vals = %r' % (vals,))
-                            print(ut.repr4(cleaner.entry))
+                            print(ub.repr2(cleaner.entry))
                             raise AssertionError('more than one pubkey=%r' % (pubkeys,))
             else:
                 pubkey = None
@@ -403,7 +409,7 @@ class BibTexCleaner(object):
                     cleaner._pub = candidates[0]
                 else:
                     print('NON-UNIQUE PUBLICATION (DOUBLE MATCH):')
-                    print(ut.repr4(cleaner.entry))
+                    print(ub.repr2(cleaner.entry))
                     print('old_pubval = %r' % (old_pubval,))
                     print('candidates = %r' % (candidates,))
                     raise RuntimeError('double match')
@@ -444,7 +450,7 @@ class BibTexCleaner(object):
         #         new_confval = candidates[0].accro()
         # else:
         #     print('DOUBLE MATCH:')
-        #     print(ut.repr4(cleaner.entry))
+        #     print(ub.repr2(cleaner.entry))
         #     print('old_pubval = %r' % (old_pubval,))
         #     print('candidates = %r' % (candidates,))
         #     raise RuntimeError('double match')
@@ -490,7 +496,7 @@ class BibTexCleaner(object):
             if pub.type == 'journal':
                 if cleaner.entry['ENTRYTYPE'] != 'article':
                     print('ENTRY IS A JOURNAL BUT NOT ARTICLE')
-                    print(ut.repr4(cleaner.entry))
+                    print(ub.repr2(cleaner.entry))
             if pub.type == 'conference':
                 # if cleaner.entry['ENTRYTYPE'] == 'incollection':
                 #     cleaner.entry['ENTRYTYPE'] = 'conference'
@@ -499,22 +505,22 @@ class BibTexCleaner(object):
 
                 if cleaner.entry['ENTRYTYPE'] != 'conference':
                     print('ENTRY IS A CONFERENCE BUT NOT INPROCEEDINGS')
-                    print(ut.repr4(cleaner.entry))
+                    print(ub.repr2(cleaner.entry))
                     # raise RuntimeError('bad conf')
             if pub.type == 'report':
                 if cleaner.entry['ENTRYTYPE'] != 'report':
                     print('ENTRY IS A REPORT BUT NOT REPORT')
-                    print(ut.repr4(cleaner.entry))
+                    print(ub.repr2(cleaner.entry))
                     # raise RuntimeError('bad conf')
             if pub.type == 'book':
                 if cleaner.entry['ENTRYTYPE'] != 'book':
                     print('ENTRY IS A BOOK BUT NOT BOOK')
-                    print(ut.repr4(cleaner.entry))
+                    print(ub.repr2(cleaner.entry))
             if pub.type == 'incollection':
                 if cleaner.entry['ENTRYTYPE'] != 'incollection':
                     print('ENTRY IS IN BOOK WITH AUTHORS FOR EACH CHAPTER '
                           'BUT NOT INCOLLECTION')
-                    print(ut.repr4(cleaner.entry))
+                    print(ub.repr2(cleaner.entry))
             cleaner.entry['pub_type'] = str(pub.type)
         else:
             if cleaner.entry['ENTRYTYPE'] not in {'incollection', 'report',
@@ -522,7 +528,7 @@ class BibTexCleaner(object):
                                                   'thesis', 'phdthesis',
                                                   'mastersthesis'}:
                 print('unknown entrytype')
-                print(ut.repr4(cleaner.entry))
+                print(ub.repr2(cleaner.entry))
 
         if cleaner.entry['ENTRYTYPE'] == 'phdthesis':
             cleaner.entry['pub_type'] = 'thesis'
@@ -555,7 +561,9 @@ class BibTexCleaner(object):
                     cleaner.entry['pub_type'] = 'online'
             else:
                 print('PUBLISHED ONLINE BUT NO URLDATE')
-                print(ut.repr4(cleaner.entry))
+                print(ub.repr2(cleaner.entry))
+                # import utool
+                # utool.embed()
         else:
             cleaner.entry.pop('url', None)
 
@@ -586,7 +594,7 @@ class BibTexCleaner(object):
                 pass
         if not arxiv_id:
             print('CANNOT FIND ARCHIX ID')
-            print(ut.repr4(cleaner.entry))
+            print(ub.repr2(cleaner.entry))
             # raise RuntimeError('Unable to find archix id')
         else:
             cleaner.entry['volume'] = 'abs/{}'.format(arxiv_id)
@@ -594,7 +602,7 @@ class BibTexCleaner(object):
         if 'url' not in cleaner.entry:
             cleaner.entry['url'] = 'https://arxiv.org/abs/{}'.format(arxiv_id)
             # print('NEEDS ARXIV URL')
-            # print(ut.repr4(cleaner.entry))
+            # print(ub.repr2(cleaner.entry))
 
     def fix_authors(cleaner):
         # Fix Authors
@@ -632,7 +640,7 @@ class BibTexCleaner(object):
                 raise AssertionError('UNKNOWN TYPE: %r' % (entry[type_key],))
             if 'booktitle' not in entry:
                 print('DOES NOT HAVE CORRECT CONFERENCE KEY')
-                print(ut.dict_str(entry))
+                print(ub.repr2(entry))
             assert 'journal' not in entry, 'should not have journal'
             entry[type_key] = 'inproceedings'
 
@@ -677,9 +685,9 @@ def main(bib_fpath=None):
     if bib_fpath is None:
         bib_fpath = 'My Library.bib'
 
-    # DEBUG = ut.get_argflag('--debug')
+    # DEBUG = ub.argflag('--debug')
     # Read in text and ensure ascii format
-    dirty_text = ut.read_from(bib_fpath)
+    dirty_text = ut.readfrom(bib_fpath)
 
     from fixtex.fix_tex import find_used_citations, testdata_fpaths
 
@@ -688,7 +696,7 @@ def main(bib_fpath=None):
         parser = bparser.BibTexParser()
         ut.delete_keys(parser.alt_dict, ['url', 'urls'])
         print('Parsing extra bibtex file')
-        extra_text = ut.read_from('custom_extra.bib')
+        extra_text = ut.readfrom('custom_extra.bib')
         extra_database = extra_parser.parse(extra_text, partial=False)
         print('Finished parsing extra')
         extra_dict = extra_database.get_entry_dict()
@@ -714,7 +722,7 @@ def main(bib_fpath=None):
     bibtex_dict = bib_database.get_entry_dict()
     old_keys = list(bibtex_dict.keys())
     new_keys = []
-    for key in ut.ProgIter(old_keys, 'fixing keys'):
+    for key in ub.ProgIter(old_keys, label='fixing keys'):
         new_key = key
         new_key = new_key.replace(':', '')
         new_key = new_key.replace('-', '_')
@@ -761,7 +769,7 @@ def main(bib_fpath=None):
     #     key_list = None
 
     unknown_pubkeys = []
-    debug_author = ut.get_argval('--debug-author', type_=str, default=None)
+    debug_author = ub.argval('--debug-author', default=None)
     # ./fix_bib.py --debug_author=Kappes
 
     if verbose:
@@ -779,7 +787,7 @@ def main(bib_fpath=None):
 
     if missing_keys:
         print('The library is missing keys found in tex files %s' % (
-            ut.repr4(missing_keys),))
+            ub.repr2(missing_keys),))
 
     # Search for possible typos:
     candidate_typos = {}
@@ -801,9 +809,9 @@ def main(bib_fpath=None):
     print('\n'.join(sedlines))
 
     # group by file
-    just = max([0] + ut.lmap(len, missing_keys))
+    just = max([0] + list(map(len, missing_keys)))
     missing_fpaths = [inverse[key] for key in missing_keys]
-    for fpath in sorted(set(ut.flatten(missing_fpaths))):
+    for fpath in sorted(set(ub.flatten(missing_fpaths))):
         # ut.fix_embed_globals()
         subkeys = [k for k in missing_keys if fpath in inverse[k]]
         print('')
@@ -824,7 +832,7 @@ def main(bib_fpath=None):
         for k, v in extra_dict.items():
             bibtex_dict[k] = v
 
-    full = ut.get_argflag('--full')
+    full = ub.argflag('--full')
 
     for key in key_list:
         try:
@@ -838,7 +846,7 @@ def main(bib_fpath=None):
 
         if debug:
             ut.cprint(' --- ENTRY ---', 'yellow')
-            print(ut.repr3(entry))
+            print(ub.repr2(entry, nl=1))
 
         entry = self.fix()
         # self.clip_abstract()
@@ -853,7 +861,7 @@ def main(bib_fpath=None):
         # self.fix_paper_types()
 
         if debug:
-            print(ut.repr3(entry))
+            print(ub.repr2(entry, nl=1))
             ut.cprint(' --- END ENTRY ---', 'yellow')
         bibtex_dict[key] = entry
 
@@ -875,12 +883,12 @@ def main(bib_fpath=None):
             x1 = self._pubval()
             x2 = self.standard_pubval(full=full)
             # if x2 is not None and len(x2) > 5:
-            #     print(ut.repr4(self.entry))
+            #     print(ub.repr2(self.entry))
 
             if x1 != x2:
                 print('x2 = %r' % (x2,))
                 print('x1 = %r' % (x1,))
-                print(ut.repr4(self.entry))
+                print(ub.repr2(self.entry))
 
             # if 'CVPR' in self.entry.get('booktitle', ''):
             #     if 'CVPR' != self.entry.get('booktitle', ''):
@@ -899,7 +907,7 @@ def main(bib_fpath=None):
         paged_items = df[~pd.isnull(df['pub_accro'])]
         has_pages = ~pd.isnull(paged_items['pages'])
         print('have pages {} / {}'.format(has_pages.sum(), len(has_pages)))
-        print(ut.repr4(paged_items[~has_pages]['title'].values.tolist()))
+        print(ub.repr2(paged_items[~has_pages]['title'].values.tolist()))
 
         entrytypes = dict(list(df.groupby('pub_type')))
         if False:
@@ -927,7 +935,7 @@ def main(bib_fpath=None):
             g = g[g.columns[~np.all(pd.isnull(g), axis=0)]]
             if 'pub_full' in g.columns:
                 place_title = g['pub_full'].tolist()
-                print(ut.repr4(ut.dict_hist(place_title)))
+                print(ub.repr2(ub.dict_hist(place_title)))
             else:
                 print('Unknown publications')
 
@@ -936,7 +944,7 @@ def main(bib_fpath=None):
             missing = g[pd.isnull(g['title'])]
             if len(missing):
                 print('Missing Title')
-                print(ut.repr4(missing[['title', 'author']].values.tolist()))
+                print(ub.repr2(missing[['title', 'author']].values.tolist()))
 
         if 'journal' in entrytypes:
             g = entrytypes['journal']
@@ -945,7 +953,7 @@ def main(bib_fpath=None):
             missing = g[pd.isnull(g['journal'])]
             if len(missing):
                 print('Missing Journal')
-                print(ut.repr4(missing[['title', 'author']].values.tolist()))
+                print(ub.repr2(missing[['title', 'author']].values.tolist()))
 
         if 'conference' in entrytypes:
             g = entrytypes['conference']
@@ -954,7 +962,7 @@ def main(bib_fpath=None):
             missing = g[pd.isnull(g['booktitle'])]
             if len(missing):
                 print('Missing Booktitle')
-                print(ut.repr4(missing[['title', 'author']].values.tolist()))
+                print(ub.repr2(missing[['title', 'author']].values.tolist()))
 
         if 'incollection' in entrytypes:
             g = entrytypes['incollection']
@@ -963,7 +971,7 @@ def main(bib_fpath=None):
             missing = g[pd.isnull(g['booktitle'])]
             if len(missing):
                 print('Missing Booktitle')
-                print(ut.repr4(missing[['title', 'author']].values.tolist()))
+                print(ub.repr2(missing[['title', 'author']].values.tolist()))
 
         if 'thesis' in entrytypes:
             g = entrytypes['thesis']
@@ -971,7 +979,7 @@ def main(bib_fpath=None):
             missing = g[pd.isnull(g['institution'])]
             if len(missing):
                 print('Missing Institution')
-                print(ut.repr4(missing[['title', 'author']].values.tolist()))
+                print(ub.repr2(missing[['title', 'author']].values.tolist()))
 
         # import utool
         # utool.embed()
@@ -981,10 +989,10 @@ def main(bib_fpath=None):
     bib_database.entries = list(bibtex_dict.values())
 
     #conftitle_to_types_set_hist = {key: set(val) for key, val in conftitle_to_types_hist.items()}
-    #print(ut.dict_str(conftitle_to_types_set_hist))
+    #print(ub.repr2(conftitle_to_types_set_hist))
 
     print('Unknown conference keys:')
-    print(ut.list_str(sorted(unknown_pubkeys)))
+    print(ub.repr2(sorted(unknown_pubkeys)))
     print('len(unknown_pubkeys) = %r' % (len(unknown_pubkeys),))
 
     writer = BibTexWriter()
@@ -1002,10 +1010,10 @@ def main(bib_fpath=None):
     # https://www.ieee.org/documents/trans_journal_names.pdf
 
     # Write out clean bibfile in ascii format
-    clean_bib_fpath = ut.augpath(bib_fpath.replace(' ', '_'), '_clean')
+    clean_bib_fpath = ub.augpath(bib_fpath.replace(' ', '_'), suffix='_clean')
 
-    if not ut.get_argflag('--dryrun'):
-        ut.write_to(clean_bib_fpath, new_bibtex_str)
+    if not ub.argflag('--dryrun'):
+        ut.writeto(clean_bib_fpath, new_bibtex_str)
 
 
 if __name__ == '__main__':
